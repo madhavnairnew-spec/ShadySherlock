@@ -3,8 +3,8 @@
 
 <head>
     <meta charset="utf-8" />
-    <title>ShadySherlock // Forensic AI Trainer</title>
-    <meta name="description" content="Immersive Forensic Training and Predictive AI Crime Scene Reconstruction" />
+    <title>ShadySherlock // Forensic AI</title>
+    <meta name="description" content="Immersive Forensic AI Crime Scene Reconstruction" />
     <!-- A-Frame VR/MR Library (Stable Release) -->
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <!-- A-Frame Environment Component for VR and Desktop Mode -->
@@ -397,7 +397,7 @@
             <div class="brand">
                 <span class="pulsar"></span>
                 <h1>SHADY SHERLOCK</h1>
-                <span class="subtitle">// FORENSIC AI TRAINER & CRIME SCENE RECONSTRUCTION</span>
+                <span class="subtitle">// FORENSIC AI CRIME SCENE RECONSTRUCTION</span>
             </div>
             <div class="system-time" id="clock">00:00:00</div>
         </div>
@@ -414,7 +414,7 @@
 
         <!-- Digital Space Environment backdrop -->
         <a-entity id="environment" 
-                  environment="preset: starry; grid: 1x1; gridColor: #11283e; playArea: 1.5; ground: flat; groundColor: #050b12; skyColor: #010610; horizonColor: #081729; lighting: point; lightPosition: 0 4 -2">
+                  environment="preset: arches; playArea: 1.5; ground: flat; groundYScale: 5; skyType: atmosphere; lighting: point; lightPosition: 0 4 -2">
         </a-entity>
 
         <a-entity light="type: ambient; color: #081e35; intensity: 0.8"></a-entity>
@@ -447,7 +447,7 @@
 
             <!-- 1. The Victim (Stylized Holographic Wireframe) -->
             <a-entity id="victim" class="clickable evidence-marker-el" 
-                      evidence-marker="id: V-01; title: Unidentified Male; description: Victim found supine. Apparent kinetic trauma to upper torso. No rigor mortis detected, suggesting recent time of death.; aiInsight: Fall trajectory indicates victim was moving backwards at time of impact. Predictive models suggest a struggle occurred 2 meters to the West prior to the fatal event."
+                      evidence-marker="id: V-01; title: Unidentified Male; description: Victim found supine. Fatal kinetic trauma to the chest cavity. No rigor mortis detected, suggesting recent time of death.; aiInsight: AI trajectory simulation reconstructs the projectile path from the origin point. The victim was struck in the torso."
                       position="0 0 0">
                 <!-- Highlight Ring (Hidden by default) -->
                 <a-ring class="highlight-ring" position="0 0.03 0.2" rotation="-90 0 0" radius-inner="0.6" radius-outer="0.65" color="#ff3344" opacity="0.8" visible="false"></a-ring>
@@ -518,9 +518,13 @@
             <a-entity id="ai-trajectory" visible="false">
                 <a-line from="-1.2 0.1 1.5" to="0 0.2 0.3" color="#ff3344" 
                         animation__draw="property: opacity; from: 0; to: 0.8; startEvents: start-reconstruction; dur: 1500"></a-line>
-                <!-- Trajectory pulse -->
-                <a-sphere position="-1.2 0.1 1.5" radius="0.03" color="#ff3344"
-                          animation__move="property: position; to: 0 0.2 0.3; startEvents: start-reconstruction; dur: 1500; easing: linear; loop: true"></a-sphere>
+                <!-- Trajectory projectile (Bullet simulation) -->
+                <a-sphere position="-1.2 0.1 1.5" radius="0.04" color="#ffff00" material="emissive: #ffff00; emissiveIntensity: 1"
+                          animation__move="property: position; to: 0 0.2 0.3; startEvents: start-reconstruction; dur: 1200; easing: easeInQuad; loop: true"></a-sphere>
+                <!-- Impact flash at the victim -->
+                <a-sphere position="0 0.2 0.3" radius="0.01" color="#ff0000" material="emissive: #ff0000; emissiveIntensity: 2; transparent: true"
+                          animation__flash="property: scale; from: 1 1 1; to: 15 15 15; startEvents: start-reconstruction; delay: 1200; dur: 200; easing: easeOutQuad; loop: true"
+                          animation__fade="property: material.opacity; from: 1; to: 0; startEvents: start-reconstruction; delay: 1200; dur: 200; easing: easeOutQuad; loop: true"></a-sphere>
             </a-entity>
 
         </a-entity>
@@ -531,31 +535,31 @@
 
         <!-- Forensic Details Dashboard (Floating slightly higher, angled to the user) -->
         <a-entity id="dashboard" position="1.4 1.5 -1.2" rotation="0 -35 0" forensic-dashboard>
-            <a-plane width="1.6" height="1.2" color="#020e1a" 
+            <a-plane width="1.8" height="1.6" color="#020e1a" 
                      material="transparent: true; opacity: 0.9; roughness: 0.2; metalness: 0.85;" 
                      geometry="skipCache: true">
                 
-                <a-ring radius-inner="0.79" radius-outer="0.8" scale="2.01 1.48 1" color="#00ffff" opacity="0.45" position="0 0 0.001" material="shader: flat;"></a-ring>
+                <a-ring radius-inner="0.89" radius-outer="0.9" scale="2.01 1.78 1" color="#00ffff" opacity="0.45" position="0 0 0.001" material="shader: flat;"></a-ring>
                 
-                <a-plane width="1.6" height="0.12" color="#00ffff" opacity="0.15" position="0 0.54 0.002" material="shader: flat;"></a-plane>
-                <a-text value="FORENSIC ANALYSIS & AI INSIGHTS" position="-0.75 0.54 0.003" width="2.4" font="mozillavr" color="#00ffff" bold="true"></a-text>
+                <a-plane width="1.8" height="0.12" color="#00ffff" opacity="0.15" position="0 0.74 0.002" material="shader: flat;"></a-plane>
+                <a-text value="FORENSIC ANALYSIS & AI INSIGHTS" position="-0.85 0.74 0.003" width="2.4" font="mozillavr" color="#00ffff" bold="true"></a-text>
                 
-                <a-entity id="data-screen" position="-0.72 0.4 0.005">
+                <a-entity id="data-screen" position="-0.82 0.6 0.005">
                     <a-text id="db-id" value="NODE: SELECT EVIDENCE" position="0 -0.05 0" width="2.5" font="mozillavr" color="#ffffff" bold="true"></a-text>
                     
                     <a-text id="db-title" value="SUBJECT: --" position="0 -0.15 0" width="2.0" font="mozillavr" color="#00ffff"></a-text>
                     
-                    <a-text value="PHYSICAL DESCRIPTION:" position="0 -0.28 0" width="1.8" font="mozillavr" color="#bbbbbb" bold="true"></a-text>
+                    <a-text value="PHYSICAL DESCRIPTION:" position="0 -0.32 0" width="1.8" font="mozillavr" color="#bbbbbb" bold="true"></a-text>
                     <a-text id="db-desc" value="Point and select any holographic evidence marker or victim node to retrieve spatial coordinates, descriptions, and AI projections." 
-                            position="0 -0.45 0" width="1.8" font="mozillavr" color="#e0e0e0" line-height="40"></a-text>
+                            position="0 -0.52 0" width="1.8" font="mozillavr" color="#e0e0e0" line-height="40"></a-text>
 
                     <!-- AI Insights Section -->
                     <a-text id="db-ai" value="AI PROJECTION:\nAwaiting selection..." 
-                            position="0 -0.75 0" width="1.8" font="mozillavr" color="#00ffff" line-height="40" bold="true"></a-text>
+                            position="0 -0.92 0" width="1.8" font="mozillavr" color="#00ffff" line-height="40" bold="true"></a-text>
                 </a-entity>
                 
                 <!-- Status Badge -->
-                <a-plane id="db-status-bg" width="0.7" height="0.08" color="#0c355a" position="0.4 -0.45 0.001" material="shader: flat;">
+                <a-plane id="db-status-bg" width="0.7" height="0.08" color="#0c355a" position="0.5 -0.65 0.001" material="shader: flat;">
                     <a-text id="db-status" value="AI PREDICTIVE MODE: STANDBY" position="0 0 0.001" align="center" width="1.6" font="mozillavr" color="#ffffff" bold="true"></a-text>
                 </a-plane>
             </a-plane>
