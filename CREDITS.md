@@ -1,6 +1,6 @@
 # Credits
 
-3D models come from the [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) repository. Textures were resized to 1024 px and converted to WebP; the car and some models were also simplified and quantized to reduce download size.
+3D models come from the [Khronos glTF Sample Assets](https://github.com/KhronosGroup/glTF-Sample-Assets) repository. Textures were resized to 1024 px and converted to WebP; several models were also simplified, quantized and had their embedded lights removed to keep the game fast on phones and headsets.
 
 | File | Model | Copyright | License |
 | --- | --- | --- | --- |

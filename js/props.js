@@ -291,9 +291,9 @@ const P = (() => {
         stanchion: () => { const g = new T.Group(); cyl(g, 0.025, 0.025, 0.95, 'brass2', 0, 0.48, 0, 12); cyl(g, 0.15, 0.17, 0.03, 'brass2', 0, 0.015, 0); add(g, new T.SphereGeometry(0.04, 12, 10), 'brass2', 0, 0.97, 0); return g; },
         rope: (a, b) => { const mid = a.clone().lerp(b, 0.5); mid.y -= 0.22; const curve = new T.QuadraticBezierCurve3(a, mid, b); return new T.Mesh(new T.TubeGeometry(curve, 20, 0.018, 8), mat('velvetRed')); },
         bench: () => { const g = new T.Group(); box(g, 1.8, 0.1, 0.5, 'leatherBrown', 0, 0.45, 0);[-0.75, 0.75].forEach(x => box(g, 0.06, 0.42, 0.44, 'steel', x, 0.2, 0)); return g; },
-        pine: () => {
-            const parts = [], trunk = new T.CylinderGeometry(0.1, 0.16, 2.2, 7); trunk.translate(0, 1.1, 0); parts.push([trunk, 0x3b2a1e]);
-            for (let i = 0; i < 5; i++) { const r = 1.5 - i * 0.26, c = new T.ConeGeometry(r, 1.6, 9, 2); c.translate(0, 1.6 + i * 0.95, 0); const p = c.attributes.position; for (let k = 0; k < p.count; k++) p.setX(k, p.getX(k) * (0.9 + Math.sin(k * 7.1) * 0.12)); parts.push([c, i % 2 ? 0x1f3a2b : 0x24432f]); }
+        pine: (far = false) => {
+            const parts = [], trunk = new T.CylinderGeometry(0.1, 0.16, 2.2, far ? 4 : 7); trunk.translate(0, 1.1, 0); parts.push([trunk, 0x3b2a1e]);
+            for (let i = 0; i < 5; i += far ? 2 : 1) { const r = 1.5 - i * 0.26, c = new T.ConeGeometry(r * (far ? 1.1 : 1), far ? 2.4 : 1.6, far ? 6 : 9, far ? 1 : 2); c.translate(0, 1.6 + i * 0.95, 0); const p = c.attributes.position; for (let k = 0; k < p.count; k++) p.setX(k, p.getX(k) * (0.9 + Math.sin(k * 7.1) * 0.12)); parts.push([c, i % 2 ? 0x1f3a2b : 0x24432f]); }
             const geos = parts.map(([geo, col]) => { const g2 = geo.toNonIndexed(), n = g2.attributes.position.count, cs = new Float32Array(n * 3), cc = new T.Color(col); for (let k = 0; k < n; k++) cs.set([cc.r, cc.g, cc.b], k * 3); g2.setAttribute('color', new T.BufferAttribute(cs, 3)); g2.deleteAttribute('uv'); return g2; });
             const merged = T.BufferGeometryUtils.mergeGeometries(geos); merged.computeVertexNormals();
             return merged;
@@ -329,12 +329,12 @@ const P = (() => {
     function model(name) {
         if (!modelCache[name]) {
             stats.total++;
-            modelCache[name] = new Promise(res => loader.load(`assets/models/${name}.glb`, gl => { stats.done++; res(gl.scene); }, undefined, () => { stats.done++; res(null); }));
+            modelCache[name] = new Promise(res => loader.load(`assets/models/${name}.glb`, gl => { stats.done++; res(Perf.prepareModel(gl.scene)); }, undefined, () => { stats.done++; res(null); }));
         }
         return modelCache[name].then(sc => {
             if (!sc) return null;
             const c = sc.clone(true);
-            c.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
+            c.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; o.userData.model = true; } });
             return c;
         });
     }

@@ -1,50 +1,73 @@
 /* =========================================================================
-   CONTROLS: keyboard + mouse (desktop), joystick + touch-look + device
-   motion (phones), thumbsticks (VR). Collision via world.walk().
+   CONTROLS: keyboard + mouse (drag or captured), joystick + touch-look +
+   device motion (phones), thumbstick move + snap turn (VR).
+   Movement is smoothed, frame-rate independent and collision-checked at
+   the head position so room-scale VR cannot walk through walls.
    ========================================================================= */
 const Controls = (() => {
     const T = THREE;
     const keys = {}, joy = { x: 0, y: 0 }, stick = { x: 0, y: 0 };
-    const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+    const isTouch = Perf.isTouch;
     const state = { enabled: false, world: null, motion: false, onTap: null, onHover: null, onStep: null };
-    let sceneEl, camEl, rigEl;
+    let sceneEl, camEl, rigEl, canvas, snapArmed = true, lockRequested = 0;
+    const vel = new T.Vector2(), q = new T.Quaternion(), eul = new T.Euler(0, 0, 0, 'YXZ'), head = new T.Vector3(), head2 = new T.Vector3();
+    const clearKeys = () => Object.keys(keys).forEach(k => keys[k] = false);
 
     window.addEventListener('keydown', e => { if (!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) keys[e.code] = true; });
     window.addEventListener('keyup', e => { keys[e.code] = false; });
-    window.addEventListener('blur', () => Object.keys(keys).forEach(k => keys[k] = false));
+    window.addEventListener('blur', clearKeys);
+    document.addEventListener('visibilitychange', clearKeys);
 
-    function lc() { return camEl && camEl.components['look-controls']; }
+    const lc = () => camEl && camEl.components['look-controls'];
+    const cam = () => (sceneEl && sceneEl.camera) || camEl.object3D;
+    const inVR = () => sceneEl && sceneEl.is('vr-mode') && sceneEl.renderer.xr.isPresenting;
+    function look(dyaw, dpitch) {
+        const l = lc(); if (!l) return;
+        l.yawObject.rotation.y += dyaw;
+        l.pitchObject.rotation.x = Math.max(-1.45, Math.min(1.45, l.pitchObject.rotation.x + dpitch));
+    }
+    const sens = () => Perf.settings.sens, inv = () => (Perf.settings.invertY ? -1 : 1);
+    const locked = () => document.pointerLockElement === canvas;
+    function releasePointer() { if (locked()) document.exitPointerLock(); }
 
     function init(scene) {
-        sceneEl = scene; camEl = scene.querySelector('#camera'); rigEl = scene.querySelector('#rig');
-        const canvas = scene.canvas;
-        // Touch-look (one finger anywhere on the canvas) and tap detection for all pointers
-        let look = null;
+        sceneEl = scene; camEl = scene.querySelector('#camera'); rigEl = scene.querySelector('#rig'); canvas = scene.canvas;
+        // One active look pointer (mouse drag or a finger); taps are short, still presses
+        let ptr = null;
         canvas.addEventListener('pointerdown', e => {
-            if (look) return;
-            look = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, touch: e.pointerType === 'touch', t: performance.now() };
+            if (ptr || (e.pointerType === 'mouse' && e.button !== 0)) return;
+            if (e.pointerType === 'mouse' && Perf.settings.mouseLock && state.enabled && !locked()) { lockRequested = performance.now(); canvas.requestPointerLock && canvas.requestPointerLock(); }
+            ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), mouse: e.pointerType === 'mouse' };
         });
         window.addEventListener('pointermove', e => {
-            if (!look || e.pointerId !== look.id) { if (e.pointerType === 'mouse' && e.target === canvas && state.onHover) state.onHover(e.clientX, e.clientY); return; }
-            const dx = e.clientX - look.x, dy = e.clientY - look.y; look.x = e.clientX; look.y = e.clientY;
-            if (look.touch && state.enabled && lc()) {
-                const k = 0.0042;
-                lc().yawObject.rotation.y += dx * k;
-                lc().pitchObject.rotation.x = Math.max(-1.35, Math.min(1.35, lc().pitchObject.rotation.x + dy * k));
-            }
+            if (locked()) return;
+            if (!ptr || e.pointerId !== ptr.id) { if (e.pointerType === 'mouse' && e.target === canvas && state.onHover) state.onHover(e.clientX, e.clientY); return; }
+            const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y; ptr.x = e.clientX; ptr.y = e.clientY;
+            if (!state.enabled) return;
+            const k = (ptr.mouse ? 0.0026 : 0.0045) * sens();
+            look(-dx * k, -dy * k * inv());
         });
+        document.addEventListener('mousemove', e => { if (locked() && state.enabled) { const k = 0.0022 * sens(); look(-e.movementX * k, -e.movementY * k * inv()); } });
         const end = e => {
-            if (!look || e.pointerId !== look.id) return;
-            const moved = Math.hypot(e.clientX - look.sx, e.clientY - look.sy);
-            if (moved < 9 && performance.now() - look.t < 600 && state.onTap) state.onTap(e.clientX, e.clientY);
-            look = null;
+            if (!ptr || e.pointerId !== ptr.id) return;
+            const still = Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) < 9 && performance.now() - ptr.t < 600;
+            const justLocked = performance.now() - lockRequested < 400;
+            if (still && !justLocked && state.onTap) locked() ? state.onTap(null, null) : state.onTap(e.clientX, e.clientY);
+            ptr = null;
         };
         window.addEventListener('pointerup', end);
-        window.addEventListener('pointercancel', e => { if (look && e.pointerId === look.id) look = null; });
+        window.addEventListener('pointercancel', e => { if (ptr && e.pointerId === ptr.id) ptr = null; });
         canvas.addEventListener('mouseleave', () => state.onHover && state.onHover(null));
 
-        // VR thumbsticks
-        scene.querySelectorAll('[laser-controls]').forEach(h => h.addEventListener('thumbstickmoved', e => { stick.x = e.detail.x; stick.y = e.detail.y; }));
+        // VR: left stick moves, right stick snap-turns
+        const hl = scene.querySelector('#hand-l'), hr = scene.querySelector('#hand-r');
+        hl.addEventListener('thumbstickmoved', e => { stick.x = e.detail.x; stick.y = e.detail.y; });
+        hr.addEventListener('thumbstickmoved', e => {
+            const x = e.detail.x;
+            if (Math.abs(x) < 0.3) snapArmed = true;
+            else if (snapArmed && Math.abs(x) > 0.7) { snapArmed = false; snapTurn(-Math.sign(x) * Perf.settings.snapTurn); }
+        });
+        scene.addEventListener('exit-vr', () => { stick.x = stick.y = 0; });
 
         // Virtual joystick
         const base = document.getElementById('joystick'), knob = base.querySelector('.knob');
@@ -55,11 +78,20 @@ const Controls = (() => {
             if (d > max) { dx *= max / d; dy *= max / d; }
             joy.x = dx / max; joy.y = dy / max;
             knob.style.transform = `translate(${dx}px, ${dy}px)`;
+            base.classList.toggle('run', Math.hypot(joy.x, joy.y) > 0.92);
         };
         base.addEventListener('pointerdown', e => { jid = e.pointerId; base.setPointerCapture(jid); base.classList.add('active'); setJoy(e); e.preventDefault(); });
         base.addEventListener('pointermove', e => { if (e.pointerId === jid) setJoy(e); });
-        const release = e => { if (e.pointerId !== jid) return; jid = null; joy.x = joy.y = 0; knob.style.transform = ''; base.classList.remove('active'); };
+        const release = e => { if (e.pointerId !== jid) return; jid = null; joy.x = joy.y = 0; knob.style.transform = ''; base.classList.remove('active', 'run'); };
         base.addEventListener('pointerup', release); base.addEventListener('pointercancel', release);
+    }
+
+    function snapTurn(deg) {
+        const o = rigEl.object3D;
+        cam().getWorldPosition(head);
+        o.rotation.y += deg * Math.PI / 180; o.updateMatrixWorld(true);
+        cam().getWorldPosition(head2);
+        o.position.x += head.x - head2.x; o.position.z += head.z - head2.z;
     }
 
     // iOS needs an explicit permission request from a user gesture
@@ -76,46 +108,65 @@ const Controls = (() => {
         }
         return Promise.resolve(!!DOE && isTouch);
     }
-    function setMotion(on) {
-        state.motion = on;
-        if (camEl) camEl.setAttribute('look-controls', 'magicWindowTrackingEnabled', on);
-    }
+    function setMotion(on) { state.motion = on; if (camEl) camEl.setAttribute('look-controls', 'magicWindowTrackingEnabled', on); }
+
     function teleport(x, z, yawDeg) {
-        rigEl.object3D.position.set(x, state.world ? state.world.groundAt(x, z) : 0, z);
-        const l = lc();
-        if (l) { l.yawObject.rotation.y = yawDeg * Math.PI / 180; l.pitchObject.rotation.x = -0.12; }
+        const o = rigEl.object3D, w = state.world;
+        vel.set(0, 0);
+        if (inVR()) {
+            cam().getWorldQuaternion(q); eul.setFromQuaternion(q, 'YXZ');
+            o.rotation.y += yawDeg * Math.PI / 180 - eul.y; o.updateMatrixWorld(true);
+            cam().getWorldPosition(head);
+            o.position.x += x - head.x; o.position.z += z - head.z;
+        } else {
+            o.rotation.set(0, 0, 0); o.position.x = x; o.position.z = z;
+            const l = lc(); if (l) { l.yawObject.rotation.y = yawDeg * Math.PI / 180; l.pitchObject.rotation.x = -0.12; }
+        }
+        o.position.y = w ? w.groundAt(x, z) : 0;
     }
 
     AFRAME.registerComponent('player', {
-        init() { this.f = new T.Vector3(); this.q = new T.Quaternion(); },
         tick(t, dtMs) {
             const w = state.world;
-            if (!state.enabled || !w || !camEl) return;
-            const dt = Math.min(dtMs, 60) / 1000;
-            let f = 0, s = 0;
-            if (keys.KeyW || keys.ArrowUp) f += 1;
-            if (keys.KeyS || keys.ArrowDown) f -= 1;
-            if (keys.KeyA || keys.ArrowLeft) s -= 1;
-            if (keys.KeyD || keys.ArrowRight) s += 1;
-            f -= joy.y + stick.y; s += joy.x + stick.x;
-            const len = Math.hypot(f, s);
-            const pos = this.el.object3D.position;
-            if (len > 0.05) {
-                if (len > 1) { f /= len; s /= len; }
-                const speed = keys.ShiftLeft || keys.ShiftRight ? 2.8 : 1.6;
-                camEl.object3D.getWorldQuaternion(this.q);
-                this.f.set(0, 0, -1).applyQuaternion(this.q); this.f.y = 0; this.f.normalize();
-                const mx = (this.f.x * f - this.f.z * s) * speed * dt, mz = (this.f.z * f + this.f.x * s) * speed * dt;
-                if (w.walk(pos.x + mx, pos.z)) pos.x += mx;
-                if (w.walk(pos.x, pos.z + mz)) pos.z += mz;
-                this.stride = (this.stride || 0) + Math.hypot(mx, mz);
-                if (this.stride > (speed > 2 ? 0.85 : 0.7)) { this.stride = 0; state.onStep && state.onStep(); }
+            if (!w || !camEl) return;
+            const dt = Math.min(dtMs || 16, 100) / 1000;
+            let f = 0, s = 0, run = false;
+            if (state.enabled) {
+                if (keys.KeyW || keys.ArrowUp) f += 1;
+                if (keys.KeyS || keys.ArrowDown) f -= 1;
+                if (keys.KeyA || keys.ArrowLeft) s -= 1;
+                if (keys.KeyD || keys.ArrowRight) s += 1;
+                run = keys.ShiftLeft || keys.ShiftRight;
+                const jm = Math.hypot(joy.x, joy.y), sm = Math.hypot(stick.x, stick.y);
+                if (jm > 0.12) { f -= joy.y; s += joy.x; run = run || jm > 0.92; }
+                if (sm > 0.15) { f -= stick.y; s += stick.x; run = run || sm > 0.95; }
             }
-            const gy = w.groundAt(pos.x, pos.z);
+            const len = Math.hypot(f, s); if (len > 1) { f /= len; s /= len; }
+            cam().getWorldQuaternion(q); eul.setFromQuaternion(q, 'YXZ');
+            const sin = Math.sin(eul.y), cos = Math.cos(eul.y), speed = run ? 3.0 : 1.7;
+            const tx = (-sin * f + cos * s) * speed, tz = (-cos * f - sin * s) * speed;
+            const k = 1 - Math.exp(-dt * (len > 0.05 ? 10 : 14));
+            vel.x += (tx - vel.x) * k; vel.y += (tz - vel.y) * k;
+            if (len < 0.05 && vel.lengthSq() < 0.0004) vel.set(0, 0);
+            const pos = this.el.object3D.position;
+            cam().getWorldPosition(head);
+            if (vel.x || vel.y) {
+                let mx = vel.x * dt, mz = vel.y * dt;
+                const n = Math.max(1, Math.ceil(Math.hypot(mx, mz) / 0.08)); mx /= n; mz /= n;
+                const ox = head.x - pos.x, oz = head.z - pos.z;
+                for (let i = 0; i < n; i++) {
+                    const hx = pos.x + ox, hz = pos.z + oz, stuck = !w.walk(hx, hz);
+                    if (stuck || w.walk(hx + mx, hz)) pos.x += mx; else vel.x *= 0.5;
+                    if (stuck || w.walk(pos.x + ox, hz + mz)) pos.z += mz; else vel.y *= 0.5;
+                }
+                this.stride = (this.stride || 0) + Math.hypot(vel.x, vel.y) * dt;
+                if (this.stride > (run ? 0.9 : 0.72)) { this.stride = 0; state.onStep && state.onStep(); }
+            }
+            const gy = w.groundAt(head.x, head.z);
             pos.y += (gy - pos.y) * Math.min(1, dt * 10);
             if (w.tick) w.tick(dt, t);
         }
     });
 
-    return { init, requestMotion, setMotion, teleport, isTouch, state, keys };
+    return { init, requestMotion, setMotion, teleport, releasePointer, snapTurn, isTouch, state, keys };
 })();

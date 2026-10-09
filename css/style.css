@@ -266,3 +266,23 @@ body.touch .desktop-only { display: none; }
     .tbtn.primary { width: 72px; height: 72px; }
     #prompt { bottom: 20px; }
 }
+
+/* ---------- VR, locator, settings, misc ---------- */
+.xr-only { display: none !important; }
+body.xr .xr-only { display: inline-flex !important; }
+.row-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.load-tip { margin-top: 22px; color: var(--muted); font-size: 13px; min-height: 2.6em; }
+#locator { position: absolute; left: 0; top: 0; width: 44px; height: 44px; pointer-events: none; display: grid; place-items: center; }
+#locator i { position: absolute; width: 0; height: 0; border-top: 11px solid transparent; border-bottom: 11px solid transparent; border-left: 20px solid var(--amber); filter: drop-shadow(0 0 6px rgba(242, 180, 42, 0.7)); }
+#locator span { position: absolute; top: 46px; font-size: 11px; color: var(--amber); white-space: nowrap; }
+#fps { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); font-size: 11px; color: var(--green); background: rgba(0, 0, 0, 0.5); padding: 2px 8px; border-radius: 4px; pointer-events: none; }
+#joystick.run { border-color: var(--amber); }
+body.mouse-locked .a-canvas { cursor: none !important; }
+.settings { display: grid; gap: 14px; margin: 16px 0; }
+.settings label { display: grid; gap: 6px; font-size: 14px; color: #c8cfd9; }
+.settings label.check { display: flex; align-items: center; gap: 10px; }
+.settings select, .settings input[type=range] { width: 100%; }
+.settings select { background: #1a212b; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; }
+.settings input[type=range] { accent-color: var(--amber); }
+.settings input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--amber); }
+body:not(.touch) .settings .touch-only { display: none; }
