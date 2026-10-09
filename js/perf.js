@@ -23,8 +23,9 @@ const Perf = (() => {
     }
 
     // ---------- model preparation: strip lights, remove transmission, simplify materials ----------
-    const converted = new WeakMap();
+    const convertedBy = {};
     function cheapMaterial(m) {
+        const pn = preset().name, converted = convertedBy[pn] || (convertedBy[pn] = new WeakMap());
         if (converted.has(m)) return converted.get(m);
         let out = m;
         if (m.isMeshPhysicalMaterial) {
@@ -42,16 +43,15 @@ const Perf = (() => {
         converted.set(m, out);
         return out;
     }
+    // Strip lights once at load; materials are converted per clone so the current quality preset always applies
     function prepareModel(root) {
         const lights = [];
-        root.traverse(o => {
-            if (o.isLight) lights.push(o);
-            if (o.isMesh) {
-                o.material = Array.isArray(o.material) ? o.material.map(cheapMaterial) : cheapMaterial(o.material);
-                o.userData.model = true;
-            }
-        });
+        root.traverse(o => { if (o.isLight) lights.push(o); if (o.isMesh) o.userData.model = true; });
         lights.forEach(l => l.parent && l.parent.remove(l));
+        return root;
+    }
+    function convertMaterials(root) {
+        root.traverse(o => { if (o.isMesh) o.material = Array.isArray(o.material) ? o.material.map(cheapMaterial) : cheapMaterial(o.material); });
         return root;
     }
 
@@ -77,26 +77,34 @@ const Perf = (() => {
             if (!merged) { after += list.length; return; }
             const mesh = new T.Mesh(merged, list[0].material);
             mesh.castShadow = list[0].castShadow; mesh.receiveShadow = list[0].receiveShadow;
-            list.forEach(o => o.parent && o.parent.remove(o));
+            list.forEach(o => { if (o.parent) o.parent.remove(o); o.geometry.dispose(); });
             root.add(mesh); after++;
         });
         return { before, after };
     }
 
     // ---------- dynamic resolution + FPS meter ----------
-    let renderer, dpr = 1, ema = 16.7, acc = 0, frames = 0, fpsEl, fpsShown = 0, locked = false;
+    let renderer, dpr = 1, ema = 16.7, acc = 0, frames = 0, fpsEl, fpsShown = 0;
+    const locks = new Set();
     function attach(r) { renderer = r; dpr = Math.min(devicePixelRatio, preset().dprCap); renderer.setPixelRatio(dpr); fpsEl = document.getElementById('fps'); applyFps(); }
     function applyFps() { if (fpsEl) fpsEl.classList.toggle('hidden', !settings.showFps); }
     function resetDpr() { if (!renderer) return; dpr = Math.min(devicePixelRatio, preset().dprCap); renderer.setPixelRatio(dpr); }
-    function lock(v) { locked = v; }
+    // Named locks (e.g. 'vr', 'load') pause dynamic resolution; releasing the last one starts fresh
+    function lock(v, name = 'vr') {
+        if (v) { locks.add(name); return; }
+        locks.delete(name);
+        if (!locks.size) { ema = 16.7; acc = 0; frames = 0; if (renderer && !renderer.xr.isPresenting) resetDpr(); }
+    }
     function tick(dtMs) {
         if (!renderer || !dtMs) return;
-        ema += (Math.min(dtMs, 250) - ema) * 0.08;
+        if (dtMs > 100) return; // one-off stall or tab resume: don't let it trigger a downscale
+        ema += (dtMs - ema) * 0.08;
         acc += dtMs; frames++;
         if (acc < 1000) return;
         const fps = frames * 1000 / acc; acc = 0; frames = 0;
         if (settings.showFps && fpsEl) fpsEl.textContent = `${Math.round(fps)} fps · ${dpr.toFixed(2)}x · ${renderer.info.render.calls} calls`;
-        if (locked || renderer.xr.isPresenting) return;
+        if (locks.size || renderer.xr.isPresenting) return;
+        if (Math.abs(renderer.getPixelRatio() - dpr) > 0.01) renderer.setPixelRatio(dpr);
         const p = preset(), cap = Math.min(devicePixelRatio, p.dprCap);
         let next = dpr;
         if (ema > 24) next = Math.max(p.dprMin, dpr - (ema > 40 ? 0.2 : 0.1));
@@ -105,5 +113,5 @@ const Perf = (() => {
     }
     onChange(k => { if (k === 'showFps') applyFps(); if (k === 'quality') resetDpr(); });
 
-    return { settings, set, onChange, preset, prepareModel, mergeStatic, attach, tick, resetDpr, lock, isTouch };
+    return { settings, set, onChange, preset, prepareModel, convertMaterials, mergeStatic, attach, tick, resetDpr, lock, isTouch };
 })();

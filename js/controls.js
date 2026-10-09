@@ -74,12 +74,16 @@ const Controls = (() => {
 
         // VR: left stick moves, right stick snap-turns
         const hl = scene.querySelector('#hand-l'), hr = scene.querySelector('#hand-r');
-        hl.addEventListener('thumbstickmoved', e => { stick.x = e.detail.x; stick.y = e.detail.y; });
-        hr.addEventListener('thumbstickmoved', e => {
+        const moveStick = e => { stick.x = e.detail.x; stick.y = e.detail.y; };
+        hl.addEventListener('thumbstickmoved', moveStick); hl.addEventListener('trackpadmoved', moveStick);
+        hl.addEventListener('trackpadtouchend', () => { stick.x = stick.y = 0; });
+        const turn = e => {
             const x = e.detail.x;
             if (Math.abs(x) < 0.3) snapArmed = true;
             else if (snapArmed && Math.abs(x) > 0.7) { snapArmed = false; snapTurn(-Math.sign(x) * Perf.settings.snapTurn); }
-        });
+        };
+        hr.addEventListener('thumbstickmoved', turn); hr.addEventListener('trackpadmoved', turn);
+        hr.addEventListener('trackpadtouchend', () => { snapArmed = true; });
         scene.addEventListener('exit-vr', () => {
             stick.x = stick.y = 0;
             // Put the flat-screen camera where the headset was, facing the same way

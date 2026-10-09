@@ -333,7 +333,7 @@ const P = (() => {
         }
         return modelCache[name].then(sc => {
             if (!sc) return null;
-            const c = sc.clone(true);
+            const c = Perf.convertMaterials(sc.clone(true));
             c.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; o.userData.model = true; } });
             return c;
         });
