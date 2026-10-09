@@ -7,6 +7,7 @@ const Game = (() => {
     const AMBER = new T.Color(0xf2b42a), BLUE = new T.Color(0x4b8dff), GREEN = new T.Color(0x3fcf8e), tmpC = new T.Color();
     const EXAMINE_RANGE = 4.5;
     const S = { c: null, world: null, root: null, ev: {}, examined: new Set(), deltas: {}, revealed: false, prev: null, elapsed: 0, running: false, scans: 0, wrong: [], solved: false, focus: null, hover: null, vrFocus: null, sel: null, scanUntil: 0, locate: null, locateUntil: 0, tweens: [], recon: null, pending: null, loading: false };
+    let runSeq = 0, musicTimer = 0;
     let sceneEl, camera, renderer, hitList = [], occluders = [], lastPick = 0, promptKey = '';
     const ray = new T.Raycaster(), tmpV = new T.Vector3(), camV = new T.Vector3(), ndc = new T.Vector2();
     const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } } };
@@ -94,17 +95,37 @@ const Game = (() => {
     function clearWorld() {
         if (S.root) {
             sceneEl.object3D.remove(S.root);
-            S.root.traverse(o => { if (o.geometry && !o.isInstancedMesh) o.geometry.dispose(); });
+            const mats = new Set();
+            S.root.traverse(o => {
+                if (o.isInstancedMesh) o.dispose();
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) [].concat(o.material).forEach(m => mats.add(m));
+            });
+            // Shared/cached materials and textures simply re-upload next time they're used
+            mats.forEach(m => { ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'alphaMap'].forEach(k => m[k] && m[k].dispose()); m.dispose(); });
         }
-        if (sceneEl.object3D.environment) { sceneEl.object3D.environment.dispose(); sceneEl.object3D.environment = null; }
+        const env = sceneEl.object3D.environment;
+        if (env) { env.dispose(); if (env.userData.rt) env.userData.rt.dispose(); sceneEl.object3D.environment = null; }
+        S.run = ++runSeq; clearTimeout(musicTimer);
         Object.assign(S, { root: null, world: null, ev: {}, tweens: [], recon: null, sel: null, focus: null, hover: null, vrFocus: null });
         hitList = []; occluders = []; Controls.state.world = null;
     }
     async function enter(c) {
+        if (S.loading) return;
         const motionReq = Controls.isTouch && Perf.settings.motion ? Controls.requestMotion() : Promise.resolve(false);
         Sound.unlock();
         clearWorld();
         Object.assign(S, { c, examined: new Set(), deltas: {}, revealed: false, prev: null, elapsed: 0, scans: 0, wrong: [], solved: false, scanUntil: 0, locate: null, loading: true });
+        const run = S.run; Perf.lock(true, 'load');
+        try { await load(c, run); } finally { S.loading = false; Perf.lock(false, 'load'); }
+        if (S.run !== run) return;
+        const ok = await motionReq;
+        if (S.run !== run) return;
+        if (Controls.isTouch) { Controls.setMotion(!!ok); setMotionUI(!!ok); }
+        if (!vrOn()) toast(`Scene secured. ${c.evidence.length} evidence markers to examine. Press H for the nearest lead if you get stuck.`);
+    }
+    async function load(c, run) {
+        const stale = () => S.run !== run;
         VR.hooks.loading(c.title);
         $('#load-code').textContent = c.code; $('#load-title').textContent = c.title;
         const step = (txt, p) => { $('#load-step').textContent = txt; $('#load-bar').style.width = Math.round(p * 100) + '%'; };
@@ -116,16 +137,21 @@ const Game = (() => {
         renderer.shadowMap.enabled = q.shadows; renderer.shadowMap.autoUpdate = false;
         const base = { t: P.stats.total, d: P.stats.done };
         const poll = setInterval(() => { const t = P.stats.total - base.t, d = P.stats.done - base.d; if (t > 0) step(`Loading 3D assets ${d}/${t}`, 0.35 + 0.5 * d / t); }, 150);
-        S.root = new T.Group(); sceneEl.object3D.add(S.root);
+        const root = S.root = new T.Group(); sceneEl.object3D.add(root);
         step('Generating surfaces and lighting', 0.2); await nextFrame();
+        if (stale()) return clearInterval(poll);
         const clear = allEv().map(e => [e.pos[0], e.pos[2]]).concat([c.spawn.pos], (c.recon.ghosts || []).map(g => [g.pos[0], g.pos[2]]));
-        S.world = await SCENES[c.scene]({ root: S.root, scene: sceneEl.object3D, renderer, mobile: q.detail !== 'high', low: q.detail === 'low', shadowSize: q.shadowSize, clear });
-        Controls.state.world = S.world;
+        const world = await SCENES[c.scene]({ root, scene: sceneEl.object3D, renderer, mobile: q.detail !== 'high', low: q.detail === 'low', shadowSize: q.shadowSize, clear });
+        if (stale()) { clearInterval(poll); if (root.parent) root.parent.remove(root); return; }
+        S.world = world; Controls.state.world = world;
         step('Optimising geometry', 0.86); await nextFrame();
-        Perf.mergeStatic(S.root);
+        if (stale()) return clearInterval(poll);
+        Perf.mergeStatic(root);
         step('Tagging evidence', 0.9); await nextFrame();
+        if (stale()) return clearInterval(poll);
         await Promise.all(c.evidence.map((e, i) => buildEvidence(e, i, false)));
         clearInterval(poll);
+        if (stale()) return;
         collectOccluders();
         step('Compiling shaders', 0.96); await nextFrame();
         Controls.teleport(c.spawn.pos[0], c.spawn.pos[1], c.spawn.yaw);
@@ -133,14 +159,12 @@ const Game = (() => {
         renderer.shadowMap.needsUpdate = true;
         Sound.ambience(c.scene); Sound.music(c.scene);
         step('Ready', 1); await nextFrame();
+        if (stale()) return;
         S.loading = false;
         screen(null); $('#hud').classList.remove('hidden');
         $('#hud-code').textContent = c.code; $('#hud-title').textContent = c.title;
         updateHUD(); syncInput();
         VR.hooks.caseLoaded();
-        const ok = await motionReq;
-        if (Controls.isTouch) { Controls.setMotion(!!ok); setMotionUI(!!ok); }
-        toast(`Scene secured. ${c.evidence.length} evidence markers to examine. Press H for the nearest lead if you get stuck.`);
     }
     const TIPS = ['Overlapping items? Aim at the smaller one: it wins.', 'Evidence highlighted in green has already been examined.', 'The damaged item unlocks AI reconstruction and two hidden findings.', 'A wrong charge costs 250 points. Wait for high confidence.', 'Press H (or the Lead button) to point at the nearest unexamined item.', 'Settings let you change graphics quality, music and look sensitivity.'];
     function collectOccluders() {
@@ -202,7 +226,7 @@ const Game = (() => {
             tent.position.set(tx, w.groundAt(tx, tz), tz); tent.rotation.y = Math.atan2(sp[0] - tx, sp[1] - tz);
             tent.traverse(o => { o.userData.evidence = true; });
             S.root.add(tent); rec.tent = tent;
-            if (ai) { g.scale.setScalar(0.01); tween(0.8, p => g.scale.setScalar(Math.max(0.01, ease(p)))); }
+            if (ai) { g.scale.setScalar(0.01); tween(0.8, p => g.scale.setScalar(Math.max(0.01, ease(p))), null, true); }
         };
         if (e.obj.model) return P.model(e.obj.model).then(m => { const o = new T.Group(); if (m) { m.scale.setScalar(e.obj.scale || 1); o.add(m); } else P.box(o, 1.8, 1.2, 4, 'steel', 0, 0.6, 0); done(o); });
         done(P.EV[e.obj.type](e.obj, e));
@@ -253,14 +277,14 @@ const Game = (() => {
             const after = posterior();
             S.deltas[id] = Object.fromEntries(S.c.suspects.map(s => [s.id, pct(after[s.id]) - pct(before[s.id])]));
             S.prev = before;
-            S.ev[id].label.material.map = TX.pic('label', e.tag, '✓ ' + e.title, S.ev[id].ai);
+            S.ev[id].label.material.map.dispose(); S.ev[id].label.material.map = TX.pic('label', e.tag, '✓ ' + e.title, S.ev[id].ai);
             flash(); Sound.sfx.shutter();
         } else Sound.sfx.tick();
         if (!vrOn()) openSheet(id);
         updateHUD();
         VR.hooks.examined(id);
-        if (first && id === S.c.recon.frag && !S.revealed) setTimeout(() => toast('Damaged evidence logged. AI reconstruction is now available (R).', true), 600);
-        if (first && allEv().every(x => S.examined.has(x.id))) setTimeout(() => toast('All evidence examined. Open the case board (B) to file a charge.'), 1200);
+        if (first && id === S.c.recon.frag && !S.revealed) { const run = S.run; setTimeout(() => S.run === run && toast(vrOn() ? 'Damaged evidence logged. AI reconstruction is now available on the tablet.' : 'Damaged evidence logged. AI reconstruction is now available (R).', true), 600); }
+        if (first && allEv().every(x => S.examined.has(x.id))) { const run = S.run; setTimeout(() => S.run === run && toast(vrOn() ? 'All evidence examined. Open the tablet (A/X) > Suspects to file a charge.' : 'All evidence examined. Open the case board (B) to file a charge.'), 1200); }
     }
     function openSheet(id) {
         Controls.releasePointer();
@@ -298,7 +322,7 @@ const Game = (() => {
     function hint() {
         if (!S.c || !Controls.state.enabled) return;
         const p = camPos(), left = Object.values(S.ev).filter(r => r.anchor && !S.examined.has(r.e.id));
-        if (!left.length) { toast(S.revealed || S.examined.has(S.c.recon.frag) ? 'Everything is examined. Open the case board to file a charge.' : 'Everything is examined.'); return; }
+        if (!left.length) { toast(S.revealed || S.examined.has(S.c.recon.frag) ? (vrOn() ? 'Everything is examined. Open the tablet (A/X) > Suspects to file a charge.' : 'Everything is examined. Open the case board to file a charge.') : 'Everything is examined.'); return; }
         const r = left.sort((a, b) => a.anchor.distanceTo(p) - b.anchor.distanceTo(p))[0];
         S.scans++; locate(r.e.id, true);
         toast(`Nearest lead: ${r.e.title}, ${r.anchor.distanceTo(p).toFixed(1)} m away (−15 pts)`);
@@ -308,7 +332,7 @@ const Game = (() => {
     // ---------------------------------------------------------------- AI reconstruction
     const ease = p => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
     const clamp01 = v => Math.max(0, Math.min(1, v));
-    function tween(dur, fn, done) { S.tweens.push({ t: 0, dur, fn, done }); }
+    function tween(dur, fn, done, shadow) { S.tweens.push({ t: 0, dur, fn, done, shadow }); }
     function reconstruct() {
         const r = S.c && S.c.recon;
         if (!r || S.revealed) return;
@@ -333,8 +357,8 @@ const Game = (() => {
         const dot = new T.Mesh(new T.SphereGeometry(r.kind === 'trajectory' ? 0.022 : 0.07, 16, 12), new T.MeshBasicMaterial({ color: 0xffffff }));
         grp.add(dot); S.recon = { dot, curve, u: 0, speed: r.kind === 'trajectory' ? 0.9 : 0.12 };
         if (r.kind === 'drift') for (let i = 1; i < 7; i++) { const u = i / 7, c = new T.Mesh(new T.ConeGeometry(0.12, 0.35, 12), new T.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.8 })); c.position.copy(curve.getPointAt(u)); c.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), curve.getTangentAt(u)); grp.add(c); }
-        const caseId = S.c.id;
-        setTimeout(() => S.c && S.c.id === caseId && S.root && (r.ghosts || []).forEach(gd => {
+        const run = S.run;
+        setTimeout(() => S.run === run && !S.loading && S.root && (r.ghosts || []).forEach(gd => {
             const f = P.figure(gd.pose, null, gd.color); f.position.set(gd.pos[0], gy(gd.pos[0], gd.pos[2]), gd.pos[2]);
             f.rotation.y = Math.atan2(gd.face[0] - gd.pos[0], gd.face[1] - gd.pos[2]); grp.add(f);
             const mats = new Set(); f.traverse(o => o.material && mats.add(o.material));
@@ -348,7 +372,7 @@ const Game = (() => {
             tween(1.5, p => cone.material.opacity = 0.09 * p);
         }
         setTimeout(() => {
-            if (!S.c || S.c.id !== caseId || !S.root) return;
+            if (S.run !== run || S.loading || !S.root) return;
             r.reveals.forEach((e, i) => buildEvidence(e, i, true));
             Sound.sfx.discover();
             toast(`${r.reveals.length} new AI findings are marked in blue. Examine them.`, true, 4500);
@@ -389,7 +413,7 @@ const Game = (() => {
         if (!prevBest || sc.total > prevBest.score) store.set('ss-best-' + c.id, { score: sc.total, rank: sc.rank });
         const key = drivers(c.solution).up.slice(0, 3);
         const next = CASES[(CASES.indexOf(c) + 1) % CASES.length];
-        Sound.intensity(0); setTimeout(() => Sound.music('title'), 2500);
+        Sound.intensity(0); clearTimeout(musicTimer); musicTimer = setTimeout(() => { if (!S.c || S.solved) Sound.music('title'); }, 2500);
         $('#result-box').innerHTML = `
             <div class="result-head"><span class="verdict-stamp ok">CASE CLOSED</span><div><div class="mono muted small">${c.code}</div><h2 style="margin:0">${esc(c.title)}</h2></div></div>
             <div class="result-grid">
@@ -405,7 +429,7 @@ const Game = (() => {
                 </div>
             </div>
             <div class="result-actions"><button class="btn" id="res-files">Case files</button><button class="btn primary" id="res-next">Next case: ${esc(next.title)}</button></div>`;
-        $('#res-files').onclick = quit; $('#res-next').onclick = () => { closeModal('result'); hideHUD(); brief(next.id); };
+        $('#res-files').onclick = quit; $('#res-next').onclick = () => { quit(); brief(next.id); };
         openModal('result'); syncInput();
         VR.hooks.solved({ title: c.title, culprit: sname(c.solution), explain: c.explain, rows: sc.rows, total: sc.total, rank: sc.rank, next: next.title, nextId: next.id });
     }
@@ -453,6 +477,7 @@ const Game = (() => {
     function hideHUD() { $('#hud').classList.add('hidden'); closeSheet(); }
     function setMotionUI(on) { const b = $('#t-motion'); b.setAttribute('aria-pressed', on); b.querySelector('b').textContent = on ? 'ON' : 'OFF'; }
     function quit() {
+        if (S.loading) return;
         $$('.modal.open').forEach(m => m.classList.remove('open'));
         hideHUD(); clearWorld(); S.c = null; S.solved = false;
         Sound.stopAmbience(); Sound.intensity(0); Sound.music('title');
@@ -479,7 +504,7 @@ const Game = (() => {
                 toast('Graphics updated. Scene detail changes apply when the case is restarted.');
             }
             if (k === 'mouseLock') { Controls.releasePointer(); $('.desk-hint').textContent = deskHint(); }
-            if (k === 'motion' && Controls.isTouch) { if (Perf.settings.motion) $('#t-motion').click(); else { Controls.setMotion(false); setMotionUI(false); } }
+            if (k === 'motion' && Controls.isTouch) { if (Perf.settings.motion) { if (!Controls.state.motion) Controls.requestMotion().then(ok => { Controls.setMotion(!!ok); setMotionUI(!!ok); if (!ok) toast('Motion sensors are unavailable on this device. Drag to look around.'); }); } else { Controls.setMotion(false); setMotionUI(false); } }
         });
     }
     const deskHint = () => `WASD move · Shift run · ${Perf.settings.mouseLock ? 'click to capture mouse, Esc to release' : 'drag to look'} · click evidence · E examine · Q sweep · H lead · B board · L log`;
@@ -504,7 +529,7 @@ const Game = (() => {
         VR.tick();
         if (S.tweens.length) {
             for (let i = S.tweens.length - 1; i >= 0; i--) { const tw = S.tweens[i]; tw.t += dt; const p = Math.min(1, tw.t / tw.dur); tw.fn(p); if (p >= 1) { S.tweens.splice(i, 1); tw.done && tw.done(); } }
-            if (renderer && renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true;
+            if (renderer && renderer.shadowMap.enabled && S.tweens.some(tw => tw.shadow)) renderer.shadowMap.needsUpdate = true;
         }
         if (!S.c || !S.world || !S.root || S.loading) return;
         if (S.running) { const prev = Math.floor(S.elapsed); S.elapsed += dt; if (Math.floor(S.elapsed) !== prev) $('#hud-timer').textContent = fmt(Math.floor(S.elapsed)); }
@@ -554,8 +579,15 @@ const Game = (() => {
     function bindUI() {
         document.body.classList.toggle('touch', Controls.isTouch);
         $('.desk-hint').textContent = deskHint();
-        const unlockAudio = () => { Sound.unlock(); if (!S.c) Sound.music('title'); window.removeEventListener('pointerdown', unlockAudio); window.removeEventListener('keydown', unlockAudio); };
-        window.addEventListener('pointerdown', unlockAudio); window.addEventListener('keydown', unlockAudio);
+        // Touch pointerdown isn't a user gesture for audio, so keep trying until the context is actually running
+        const unlockEvents = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
+        const removeUnlock = () => unlockEvents.forEach(ev => window.removeEventListener(ev, unlockAudio));
+        const unlockAudio = () => {
+            const ac = Sound.unlock(); if (!ac) return removeUnlock();
+            if (!S.c) Sound.music('title');
+            if (ac.state === 'running') removeUnlock(); else ac.resume().then(() => { if (ac.state === 'running') removeUnlock(); }).catch(() => { });
+        };
+        unlockEvents.forEach(ev => window.addEventListener(ev, unlockAudio));
         document.addEventListener('click', e => {
             const t = e.target.closest('[data-open],[data-close],[data-case],[data-charge],[data-locate],[data-view]');
             if (!t) return;
@@ -577,9 +609,14 @@ const Game = (() => {
         $('#b-vr').onclick = () => VR.enter();
         $('#btn-vr-title').onclick = () => VR.enter();
         $('#btn-vr-menu').onclick = () => { closeModal('menu'); VR.enter(); };
-        $('#btn-restart').onclick = () => { closeModal('menu'); enter(S.c); };
+        $('#btn-restart').onclick = () => { if (S.loading) return; closeModal('menu'); enter(S.c); };
         $('#btn-quit').onclick = quit;
-        $('#btn-fullscreen').onclick = () => { const d = document; if (d.fullscreenElement) d.exitFullscreen(); else if (d.documentElement.requestFullscreen) d.documentElement.requestFullscreen().catch(() => toast('Fullscreen is not available in this browser.')); };
+        $('#btn-fullscreen').onclick = () => {
+            const d = document, el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, exit = d.exitFullscreen || d.webkitExitFullscreen;
+            const no = () => toast('Fullscreen is not available in this browser. On iPhone, use Share > Add to Home Screen.');
+            if (d.fullscreenElement || d.webkitFullscreenElement) exit.call(d);
+            else if (req) Promise.resolve(req.call(el)).catch(no); else no();
+        };
         $('#t-examine').onclick = () => S.focus && tryExamine(S.focus);
         $('#t-motion').onclick = () => {
             if (Controls.state.motion) { Controls.setMotion(false); setMotionUI(false); return; }
@@ -594,6 +631,7 @@ const Game = (() => {
                 if (open && open.id !== 'result') closeModal(open.id); else if ($('#ev-panel').classList.contains('open')) closeSheet(); else if (S.c && !S.solved && !S.loading) openModal('menu');
                 return;
             }
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
             if (!S.c || anyModal() || $('.screen.active') || e.repeat) return;
             if (e.code === 'KeyE' && S.focus) tryExamine(S.focus);
             if (e.code === 'KeyQ') sweep();

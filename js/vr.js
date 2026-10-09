@@ -20,8 +20,8 @@ const VR = (() => {
             this.W = pxW; this.H = Math.round(pxW * hM / wM);
             this.canvas = document.createElement('canvas'); this.canvas.width = this.W; this.canvas.height = this.H;
             this.g = this.canvas.getContext('2d');
-            this.tex = new T.CanvasTexture(this.canvas); this.tex.colorSpace = T.SRGBColorSpace; this.tex.anisotropy = 4;
-            this.mesh = new T.Mesh(new T.PlaneGeometry(wM, hM), new T.MeshBasicMaterial({ map: this.tex, transparent: true, toneMapped: false, fog: false }));
+            this.tex = new T.CanvasTexture(this.canvas); this.tex.colorSpace = T.SRGBColorSpace; this.tex.anisotropy = 4; this.tex.generateMipmaps = false; this.tex.minFilter = T.LinearFilter;
+            this.mesh = new T.Mesh(new T.PlaneGeometry(wM, hM), new T.MeshBasicMaterial({ map: this.tex, transparent: true, toneMapped: false, fog: false, depthTest: false, depthWrite: false }));
             this.mesh.renderOrder = 30; this.mesh.visible = false; this.mesh.userData.panel = this;
             this.render = render; this.buttons = []; this.hover = null;
             panels.push(this);
@@ -139,6 +139,7 @@ const VR = (() => {
         });
         if (n < 3) u.text('Examine at least three items before filing a charge.', 40, u.H - 30, { size: 22, color: C.muted });
         if (state.confirm) {
+            tablet().buttons = []; // only the dialog's own buttons are clickable
             const s = c.suspects.find(x => x.id === state.confirm), pr = p[s.id];
             u.rect(0, 0, u.W, u.H, 'rgba(5,7,10,0.82)', 28);
             u.rect(200, 250, u.W - 400, 380, '#151b23', 20);
@@ -229,6 +230,7 @@ const VR = (() => {
     }
     function place(mesh, x, y, z) {
         const rig = sceneEl.querySelector('#rig').object3D;
+        rig.updateMatrixWorld(true);
         mesh.position.set(x, y, z); rig.localToWorld(mesh.position);
         sceneEl.camera.getWorldPosition(headPos); mesh.lookAt(headPos.x, mesh.position.y, headPos.z);
         if (!mesh.parent) sceneEl.object3D.add(mesh);
@@ -248,14 +250,15 @@ const VR = (() => {
             const geo = new T.BufferGeometry().setFromPoints([new T.Vector3(), new T.Vector3(0, 0, -1)]);
             const line = new T.Line(geo, new T.LineBasicMaterial({ color: 0xf2b42a, transparent: true, opacity: 0.8 }));
             const dot = new T.Mesh(new T.SphereGeometry(0.012, 12, 8), new T.MeshBasicMaterial({ color: 0xffffff }));
-            line.visible = dot.visible = false; line.frustumCulled = false; line.renderOrder = dot.renderOrder = 40;
+            line.visible = dot.visible = false; line.frustumCulled = false; line.renderOrder = dot.renderOrder = 60;
             sceneEl.object3D.add(line, dot);
             const h = { el, line, dot, hit: null, origin: new T.Vector3(), dir: new T.Vector3() };
             hands.push(h);
             const hideLaser = () => setTimeout(() => el.setAttribute('raycaster', 'showLine', false), 0);
-            el.addEventListener('controllerconnected', hideLaser); hideLaser();
+            ['controllerconnected', 'controllermodelready'].forEach(ev => el.addEventListener(ev, hideLaser)); hideLaser();
             el.addEventListener('triggerdown', () => { if (state.active) { primary = h; select(h); } });
-            ['abuttondown', 'xbuttondown', 'menudown'].forEach(ev => el.addEventListener(ev, () => state.active && G.S.c && !state.result && toggleTablet()));
+            // grip / trackpad click too, for controllers without A/X buttons
+            ['abuttondown', 'xbuttondown', 'menudown', 'gripdown', 'trackpaddown'].forEach(ev => el.addEventListener(ev, () => state.active && G.S.c && !G.S.loading && !state.result && toggleTablet()));
             ['bbuttondown', 'ybuttondown'].forEach(ev => el.addEventListener(ev, () => state.active && G.S.c && G.sweep()));
         });
         primary = hands[1] || hands[0];
@@ -304,7 +307,7 @@ const VR = (() => {
         if (!t.mesh.parent) sceneEl.object3D.add(t.mesh);
         t.show();
     }
-    function toggleTablet() { const t = tablet(); if (t.mesh.visible) t.show(false); else { state.confirm = null; summonTablet(true); } }
+    function toggleTablet() { const t = tablet(); sceneEl.camera.getWorldPosition(headPos); if (t.mesh.visible && t.mesh.position.distanceTo(headPos) < 1.8) t.show(false); else { state.confirm = null; summonTablet(true); } }
 
     // ------------------------------------------------------------- frame
     let lastSec = -1;
@@ -335,7 +338,12 @@ const VR = (() => {
     const hooks = {
         examined() { if (!state.active) return; state.tab = 'evidence'; state.confirm = null; summonTablet(false); },
         update() { if (state.active && tablet().mesh.visible) tablet().redraw(); },
-        loading(title) { state.loading = title; if (state.active) { panels.cases.redraw(); } },
+        loading(title) {
+            state.loading = title;
+            if (!state.active) return;
+            tablet().show(false); state.confirm = null;
+            if (!panels.cases.mesh.visible) { place(panels.cases.mesh, 0, 1.45, -1.9); panels.cases.show(); } else panels.cases.redraw();
+        },
         caseLoaded() {
             state.loading = null; state.result = null; state.tab = 'case';
             if (!state.active) return;
@@ -360,12 +368,13 @@ const VR = (() => {
         scene.addEventListener('enter-vr', () => {
             if (!scene.is('vr-mode')) return;
             state.active = true; Perf.lock(true);
-            if (G.S.c) { G.syncInput(); toast('Press A or X for the case tablet. B or Y runs a forensic sweep.'); }
+            if (G.S.c && state.result) summonTablet(true);
+            else if (G.S.c) { G.syncInput(); toast('Press A or X for the case tablet. B or Y runs a forensic sweep.'); }
             else showLobby(true);
             G.onVR(true);
         });
         scene.addEventListener('exit-vr', () => {
-            state.active = false; Perf.lock(false);
+            state.active = false; Perf.lock(false); requestAnimationFrame(() => Perf.resetDpr());
             panels.forEach(p => p.show(false)); hands.forEach(h => { h.line.visible = h.dot.visible = false; });
             if (lobbyGroup) lobbyGroup.visible = false;
             G.setVRFocus(null); G.onVR(false);

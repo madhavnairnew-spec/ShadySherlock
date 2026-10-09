@@ -4,7 +4,7 @@
    ========================================================================= */
 const Sound = (() => {
     let ctx, master, musicBus, sfxBus, revSend, ambBus;
-    let theme = null, nextT = 0, step = 0, timer = null, level = 0, amb = null, ambTimers = [];
+    let theme = null, pending = null, token = 0, tbus = null, nextT = 0, step = 0, timer = null, level = 0, amb = null, ambTimers = [];
     const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
     const MINOR = [0, 2, 3, 5, 7, 8, 10], PHRYG = [0, 1, 3, 5, 7, 8, 10];
     const THEMES = {
@@ -18,7 +18,7 @@ const Sound = (() => {
         if (!ctx) {
             const AC = window.AudioContext || window.webkitAudioContext;
             if (!AC) return null;
-            ctx = new AC();
+            try { ctx = new AC(); } catch (e) { return null; }
             const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
             master = ctx.createGain(); master.connect(comp); comp.connect(ctx.destination);
             musicBus = ctx.createGain(); sfxBus = ctx.createGain(); ambBus = ctx.createGain();
@@ -32,7 +32,7 @@ const Sound = (() => {
             applyVolumes();
             document.addEventListener('visibilitychange', () => { if (!ctx) return; document.hidden ? ctx.suspend() : ctx.resume(); });
         }
-        if (ctx.state === 'suspended' && !document.hidden) ctx.resume();
+        if (ctx.state !== 'running' && !document.hidden) ctx.resume().catch(() => { });
         return ctx;
     }
     function applyVolumes() {
@@ -49,28 +49,28 @@ const Sound = (() => {
     function pad(notes, t, dur, cutoff, vol = 0.045) {
         const f = ctx.createBiquadFilter(), g = ctx.createGain(); f.type = 'lowpass'; f.frequency.value = cutoff; f.Q.value = 0.6;
         const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 0.08; lg.gain.value = cutoff * 0.35; lfo.connect(lg); lg.connect(f.frequency); lfo.start(t); lfo.stop(t + dur + 4);
-        f.connect(g); g.connect(musicBus); g.connect(revSend);
+        f.connect(g); g.connect(tbus || musicBus); g.connect(revSend);
         env(g, t, 2.2, vol, Math.max(0.1, dur - 2.2), 3.2);
         notes.forEach(n => { osc('sawtooth', mtof(n), t, t + dur + 3.5, f, -7); osc('sawtooth', mtof(n), t, t + dur + 3.5, f, 7); });
     }
     function bass(n, t, dur) {
         const g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320;
-        f.connect(g); g.connect(musicBus); env(g, t, 0.08, 0.11, dur * 0.4, dur * 0.7);
+        f.connect(g); g.connect(tbus || musicBus); env(g, t, 0.08, 0.11, dur * 0.4, dur * 0.7);
         osc('sine', mtof(n), t, t + dur * 1.2, g); osc('triangle', mtof(n), t, t + dur * 1.2, f);
     }
     function plink(n, t, vol = 0.045, keys = false) {
-        const g = ctx.createGain(); g.connect(musicBus); g.connect(revSend);
+        const g = ctx.createGain(); g.connect(tbus || musicBus); g.connect(revSend);
         env(g, t, 0.006, vol, 0.02, keys ? 1.4 : 2.2);
         osc('sine', mtof(n), t, t + 2.6, g); osc(keys ? 'triangle' : 'sine', mtof(n + 12), t, t + 1.2, g, 3);
     }
     function pulse(n, t, vol) {
         const g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520;
-        f.connect(g); g.connect(musicBus); env(g, t, 0.01, vol, 0.03, 0.18);
+        f.connect(g); g.connect(tbus || musicBus); env(g, t, 0.01, vol, 0.03, 0.18);
         osc('triangle', mtof(n), t, t + 0.3, f);
     }
     function strings(notes, t, dur) {
         const g = ctx.createGain(), f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 2600;
-        f.connect(g); g.connect(musicBus); g.connect(revSend); env(g, t, 3, 0.022, Math.max(0.1, dur - 3), 3);
+        f.connect(g); g.connect(tbus || musicBus); g.connect(revSend); env(g, t, 3, 0.022, Math.max(0.1, dur - 3), 3);
         const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5; vg.gain.value = 5; vib.connect(vg); vib.start(t); vib.stop(t + dur + 3.2);
         notes.forEach(n => { const o = osc('sawtooth', mtof(n), t, t + dur + 3.2, f); vg.connect(o.detune); });
     }
@@ -90,21 +90,30 @@ const Sound = (() => {
     }
     function run() {
         if (!theme || !ctx) return;
-        while (nextT < ctx.currentTime + 0.7) { schedule(step, nextT); nextT += 60 / theme.bpm / 2; step++; }
+        if (Perf.settings.music <= 0.001) { nextT = ctx.currentTime + 0.1; return; }
+        const e8 = 60 / theme.bpm / 2;
+        // After a stall, skip the missed steps instead of firing them all at once
+        if (nextT < ctx.currentTime) { const miss = Math.ceil((ctx.currentTime - nextT) / e8); step += miss; nextT += miss * e8; }
+        for (let n = 0; n < 8 && nextT < ctx.currentTime + 0.7; n++) { schedule(step, nextT); nextT += e8; step++; }
     }
     function music(name) {
         if (!ensure()) return;
         const th = THEMES[name] || THEMES.title;
-        if (theme === th) return;
+        if ((pending || theme) === th) return;
+        pending = th; const my = ++token;
         const t = ctx.currentTime;
         musicBus.gain.cancelScheduledValues(t); musicBus.gain.setTargetAtTime(0.0001, t, 0.4);
         clearInterval(timer);
         setTimeout(() => {
-            theme = th; step = 0; level = 0; nextT = ctx.currentTime + 0.1;
+            if (my !== token) return;
+            pending = null; theme = th; step = 0; level = 0; nextT = ctx.currentTime + 0.1;
+            // Fresh bus per theme so notes still ringing from the old theme are cut off
+            const old = tbus; tbus = ctx.createGain(); tbus.connect(musicBus);
+            if (old) { old.gain.setTargetAtTime(0, ctx.currentTime, 0.05); setTimeout(() => old.disconnect(), 1000); }
             applyVolumes(); clearInterval(timer); timer = setInterval(run, 120); run();
         }, 1300);
     }
-    function stopMusic() { clearInterval(timer); theme = null; if (ctx) musicBus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.5); }
+    function stopMusic() { clearInterval(timer); theme = null; pending = null; ++token; if (ctx) musicBus.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.5); }
     function intensity(n) { level = n; }
 
     // ---------- effects ----------

@@ -16,6 +16,8 @@ const SCENES = (() => {
     function envFrom(renderer, build) {
         const s = new T.Scene(); build(s);
         const pm = new T.PMREMGenerator(renderer), rt = pm.fromScene(s, 0.04); pm.dispose();
+        s.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) [].concat(o.material).forEach(m => { if (m.map) m.map.dispose(); m.dispose(); }); });
+        rt.texture.userData.rt = rt;
         return rt.texture;
     }
     const basic = (color, opts = {}) => new T.MeshBasicMaterial({ color, ...opts });
