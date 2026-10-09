@@ -12,10 +12,13 @@
     <link rel="stylesheet" href="css/style.css" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="js/data.js"></script>
+    <script src="js/perf.js"></script>
     <script src="js/textures.js"></script>
     <script src="js/props.js"></script>
     <script src="js/scenes.js"></script>
+    <script src="js/audio.js"></script>
     <script src="js/controls.js"></script>
+    <script src="js/vr.js"></script>
     <script src="js/game.js"></script>
 </head>
 
@@ -25,16 +28,9 @@
              device-orientation-permission-ui="enabled: false" webxr="referenceSpaceType: local-floor">
         <a-entity id="rig" player>
             <a-entity id="camera" camera="near: 0.05; far: 900" position="0 1.6 0"
-                      look-controls="touchEnabled: false; pointerLockEnabled: false; magicWindowTrackingEnabled: false"></a-entity>
+                      look-controls="touchEnabled: false; mouseEnabled: false; pointerLockEnabled: false; magicWindowTrackingEnabled: false"></a-entity>
             <a-entity id="hand-l" laser-controls="hand: left" raycaster="objects: .none; far: 8; lineColor: #f2b42a; lineOpacity: 0.7"></a-entity>
             <a-entity id="hand-r" laser-controls="hand: right" raycaster="objects: .none; far: 8; lineColor: #f2b42a; lineOpacity: 0.7"></a-entity>
-        </a-entity>
-        <a-entity id="vr-panel" visible="false">
-            <a-plane width="1.1" height="0.62" color="#0d1117" material="opacity: 0.92; transparent: true; shader: flat"></a-plane>
-            <a-plane width="1.1" height="0.09" position="0 0.265 0.001" color="#f2b42a" material="shader: flat"></a-plane>
-            <a-text id="vr-title" value="" position="-0.52 0.265 0.002" width="1.4" color="#111" font="roboto"></a-text>
-            <a-text id="vr-body" value="" position="-0.52 0.05 0.002" width="1.0" color="#e6e9ee" font="roboto" baseline="center"></a-text>
-            <a-text id="vr-probs" value="" position="-0.52 -0.22 0.002" width="0.95" color="#f2b42a" font="roboto"></a-text>
         </a-entity>
     </a-scene>
 
@@ -51,9 +47,10 @@
             <h2 class="section-label">Open case files</h2>
             <div id="case-grid" class="case-grid"></div>
             <footer class="title-foot">
-                <button class="link-btn" data-open="about">About &amp; credits</button>
+                <button class="btn ai xr-only" id="btn-vr-title">Play in VR</button>
+                <button class="link-btn" data-open="settings">Settings</button>
                 <button class="link-btn" data-open="help">Controls</button>
-                <button class="link-btn hidden" id="btn-vr-title">Enter VR</button>
+                <button class="link-btn" data-open="about">About &amp; credits</button>
             </footer>
         </div>
     </section>
@@ -88,7 +85,7 @@
             </div>
             <div class="brief-actions">
                 <p class="hint-line" id="brief-controls"></p>
-                <button class="btn primary big" id="btn-enter">Enter crime scene</button>
+                <div class="row-btns"><button class="btn ai big xr-only" id="btn-enter-vr">Enter in VR</button><button class="btn primary big" id="btn-enter">Enter crime scene</button></div>
             </div>
         </div>
     </section>
@@ -100,6 +97,7 @@
             <div class="load-title" id="load-title">Securing the scene…</div>
             <div class="bar"><i id="load-bar"></i></div>
             <div class="load-step mono" id="load-step">Preparing</div>
+            <p class="load-tip" id="load-tip"></p>
         </div>
     </section>
 
@@ -114,7 +112,9 @@
             <button class="hbtn" id="b-board" title="Case board (B)"><span class="ico">◧</span><span class="lbl">Board</span><kbd>B</kbd></button>
             <button class="hbtn" id="b-log" title="Evidence log (L)"><span class="ico">≣</span><span class="lbl">Evidence</span><kbd>L</kbd></button>
             <button class="hbtn" id="b-sweep" title="Forensic sweep (Q)"><span class="ico">◎</span><span class="lbl">Sweep</span><kbd>Q</kbd></button>
+            <button class="hbtn" id="b-lead" title="Nearest lead (H)"><span class="ico">➤</span><span class="lbl">Lead</span><kbd>H</kbd></button>
             <button class="hbtn ai hidden" id="b-ai" title="Run AI reconstruction (R)"><span class="ico">◈</span><span class="lbl">AI Recon</span><kbd>R</kbd></button>
+            <button class="hbtn ai xr-only" id="b-vr" title="Enter VR"><span class="ico">◐</span><span class="lbl">VR</span></button>
             <button class="hbtn" id="b-menu" title="Menu (Esc)"><span class="ico">☰</span><span class="lbl">Menu</span></button>
         </div>
         <div class="hud-probs panel" id="hud-probs">
@@ -122,10 +122,13 @@
             <div id="probs-list"></div>
         </div>
         <div id="crosshair"></div>
+        <div id="locator" class="hidden"><i></i><span class="mono"></span></div>
+        <div id="fps" class="mono hidden"></div>
         <div id="prompt" class="hidden"></div>
         <div id="joystick" class="touch-only" aria-label="Move"><div class="knob"></div></div>
         <div class="touch-actions touch-only">
             <button class="tbtn" id="t-motion" aria-pressed="false">Motion<br><b>OFF</b></button>
+            <button class="tbtn" id="t-lead">Lead</button>
             <button class="tbtn" id="t-sweep">Sweep</button>
             <button class="tbtn primary" id="t-examine" disabled>Examine</button>
         </div>
@@ -172,9 +175,10 @@
             <h2>Paused</h2>
             <div class="menu-list">
                 <button class="btn primary" data-close="menu">Resume</button>
+                <button class="btn" data-open="settings">Settings</button>
                 <button class="btn" data-open="help">Controls</button>
-                <button class="btn" id="btn-sound">Sound: on</button>
-                <button class="btn hidden" id="btn-vr-menu">Enter VR</button>
+                <button class="btn" id="btn-fullscreen">Fullscreen</button>
+                <button class="btn ai xr-only" id="btn-vr-menu">Enter VR</button>
                 <button class="btn" id="btn-restart">Restart case</button>
                 <button class="btn" id="btn-quit">Exit to case files</button>
             </div>
@@ -198,10 +202,28 @@
             <button class="close" data-close="help" aria-label="Close">✕</button>
             <h2>Controls</h2>
             <div class="help-grid">
-                <div><h4>Desktop</h4><p><kbd>W A S D</kbd> or arrows to walk, <kbd>Shift</kbd> to run<br>Drag the mouse to look around<br>Click evidence or press <kbd>E</kbd> on the highlighted item<br><kbd>Q</kbd> forensic sweep · <kbd>R</kbd> AI reconstruction<br><kbd>B</kbd> case board · <kbd>L</kbd> evidence log · <kbd>Esc</kbd> menu</p></div>
-                <div><h4>Phone &amp; tablet</h4><p>Turn on <b>Motion</b> and move your phone to look around<br>Drag with one finger to turn<br>Left joystick to walk<br>Aim the centre dot at evidence and tap <b>Examine</b>, or tap the item directly</p></div>
-                <div><h4>VR headset</h4><p>Enter VR from the menu<br>Thumbstick to walk<br>Point the laser at evidence and pull the trigger</p></div>
+                <div><h4>Desktop</h4><p><kbd>W A S D</kbd> or arrows to walk, <kbd>Shift</kbd> to run<br>Drag the mouse to look (or turn on mouse capture in Settings)<br>Click evidence or press <kbd>E</kbd> on the highlighted item<br><kbd>Q</kbd> sweep · <kbd>H</kbd> nearest lead · <kbd>R</kbd> AI reconstruction<br><kbd>B</kbd> case board · <kbd>L</kbd> evidence log · <kbd>Esc</kbd> menu</p></div>
+                <div><h4>Phone &amp; tablet</h4><p>Turn on <b>Motion</b> and move your phone to look around<br>Drag with one finger to turn<br>Left joystick to walk, push to the edge to run<br>Aim the centre dot at evidence and tap <b>Examine</b>, or tap the item</p></div>
+                <div><h4>VR headset</h4><p>Left stick to walk, right stick to snap-turn<br>Point the laser and pull the trigger to examine or press panel buttons<br><b>A / X</b> opens the case tablet (evidence, suspects, charges)<br><b>B / Y</b> runs a forensic sweep</p></div>
             </div>
+        </div>
+    </div>
+    <div id="settings" class="modal" role="dialog" aria-label="Settings">
+        <div class="modal-box">
+            <button class="close" data-close="settings" aria-label="Close">✕</button>
+            <h2>Settings</h2>
+            <div class="settings">
+                <label>Graphics quality<select id="set-quality"><option value="auto">Auto</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select></label>
+                <label class="check"><input type="checkbox" id="set-fps"> Show frame rate</label>
+                <label>Music volume<input type="range" id="set-music" min="0" max="1" step="0.05"></label>
+                <label>Effects volume<input type="range" id="set-sfx" min="0" max="1" step="0.05"></label>
+                <label>Look sensitivity <span class="mono muted" id="set-sens-v"></span><input type="range" id="set-sens" min="0.4" max="2.5" step="0.1"></label>
+                <label class="check"><input type="checkbox" id="set-invert"> Invert vertical look</label>
+                <label class="check desktop-only"><input type="checkbox" id="set-lock"> Capture the mouse (FPS-style look)</label>
+                <label class="check touch-only"><input type="checkbox" id="set-motion"> Motion controls on phones</label>
+                <label>VR snap-turn angle<select id="set-snap"><option value="15">15°</option><option value="30">30°</option><option value="45">45°</option></select></label>
+            </div>
+            <p class="muted small">Auto picks High on computers and Medium on phones, and lowers the resolution automatically if the frame rate drops. Scene detail changes apply when a case is (re)loaded.</p>
         </div>
     </div>
     <div id="about" class="modal" role="dialog" aria-label="About">

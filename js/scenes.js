@@ -19,10 +19,10 @@ const SCENES = (() => {
         return rt.texture;
     }
     const basic = (color, opts = {}) => new T.MeshBasicMaterial({ color, ...opts });
-    function spot(root, color, intensity, pos, target, angle, penumbra, shadow, mobile) {
+    function spot(root, color, intensity, pos, target, angle, penumbra, shadow, size) {
         const l = new T.SpotLight(color, intensity, 0, angle, penumbra, 2);
         l.position.set(...pos); l.target.position.set(...target);
-        if (shadow) { l.castShadow = true; l.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); l.shadow.bias = -0.0004; l.shadow.normalBias = 0.02; }
+        if (shadow) { l.castShadow = true; l.shadow.mapSize.set(size, size); l.shadow.bias = -0.0004; l.shadow.normalBias = 0.02; }
         root.add(l, l.target); return l;
     }
     function point(root, color, intensity, pos) { const l = new T.PointLight(color, intensity, 0, 2); l.position.set(...pos); root.add(l); return l; }
@@ -43,7 +43,7 @@ const SCENES = (() => {
     // PENTHOUSE — night, city skyline
     // =====================================================================
     async function penthouse(ctx) {
-        const { root, scene, renderer, mobile } = ctx, H = 3.2;
+        const { root, scene, renderer, mobile } = ctx, H = 3.2, SS = ctx.shadowSize || 2048;
         scene.background = new T.Color(0x03050b);
         scene.fog = null;
         const wall = TX.mat('plaster', { base: '#e9e5dd' }, { rough: 0.92, normal: 0.4 });
@@ -123,11 +123,9 @@ const SCENES = (() => {
         // Lighting
         root.add(new T.HemisphereLight(0x9fb3d1, 0x3a2a1e, 0.35));
         const moon = new T.DirectionalLight(0x8fa8d8, 0.5); moon.position.set(0, 8, -20); root.add(moon);
-        spot(root, 0xffd9b0, 70, [3.4, 3.15, -1.4], [3.5, 0, -1.2], 0.9, 0.7, true, mobile);
-        spot(root, 0xffd9b0, 45, [-2.4, 3.15, -1.8], [-2.4, 0, -1.9], 0.95, 0.75, !mobile, mobile);
-        point(root, 0xffcf9a, 6, [-1.2, 2.0, 2.4]);
-        point(root, 0xfff0dd, 8, [-4.2, 2.9, 3.2]);
-        if (!mobile) { point(root, 0xffe0c0, 6, [4.0, 2.9, 3.0]); point(root, 0xffd2a0, 3, [-4.4, 1.7, -3.4]); }
+        spot(root, 0xffd9b0, 70, [3.4, 3.15, -1.4], [3.5, 0, -1.2], 0.9, 0.7, true, SS);
+        spot(root, 0xffd9b0, 50, [-2.4, 3.15, -1.8], [-2.4, 0, -1.9], 1.0, 0.75, false, SS);
+        point(root, 0xffe2c0, 12, [-2.6, 2.7, 3.0]);
         point(root, 0xffd2a0, 1.5, [4.65, 1.15, -3.45]);
         scene.environment = envFrom(renderer, s => {
             const room = new T.Mesh(new T.BoxGeometry(12, 3.2, 10), basic(0x3a342e, { side: T.BackSide })); room.position.y = 1.6; s.add(room);
@@ -153,7 +151,7 @@ const SCENES = (() => {
     // LAKE — misty dawn
     // =====================================================================
     async function lake(ctx) {
-        const { root, scene, renderer, mobile } = ctx, WATER = -0.06, clear = ctx.clear || [];
+        const { root, scene, renderer, mobile } = ctx, WATER = -0.06, clear = ctx.clear || [], D = ctx.low ? 0.5 : mobile ? 0.75 : 1;
         const isClear = (x, z, r) => clear.some(([cx, cz]) => Math.hypot(x - cx, z - cz) < r);
         const shoreZ = x => -1.2 + 0.9 * Math.sin(x * 0.09) + 0.4 * Math.sin(x * 0.23 + 1);
         const smooth = (a, b, t) => { t = Math.min(1, Math.max(0, (t - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -174,7 +172,7 @@ const SCENES = (() => {
         hills.material.map.wrapS = T.RepeatWrapping; hills.material.map.repeat.x = 3; hills.position.y = 14; root.add(hills);
 
         // Terrain with vertex-colour zones
-        const N = mobile ? 110 : 160, tg = new T.PlaneGeometry(140, 140, N, N); tg.rotateX(-Math.PI / 2); tg.translate(0, 0, 20);
+        const N = ctx.low ? 80 : mobile ? 110 : 130, tg = new T.PlaneGeometry(140, 140, N, N); tg.rotateX(-Math.PI / 2); tg.translate(0, 0, 20);
         const tp = tg.attributes.position, cols = new Float32Array(tp.count * 3), c = new T.Color();
         const GRASS = new T.Color(0x56683a), GRASS2 = new T.Color(0x6b7444), MUD = new T.Color(0x4a3a2a), WET = new T.Color(0x2e261d), PATH = new T.Color(0x7d6a52), GRAVEL = new T.Color(0x77736b);
         for (let i = 0; i < tp.count; i++) {
@@ -192,11 +190,11 @@ const SCENES = (() => {
 
         // Water
         const wnorm = TX.canvasTex(TX.normalFrom(TX.noise(256, 8, 4, 77), 4), 60, 60, false);
-        const water = new T.Mesh(new T.PlaneGeometry(500, 500), new T.MeshStandardMaterial({ color: 0x2a4148, roughness: 0.05, metalness: 0.25, normalMap: wnorm, transparent: true, opacity: 0.93 }));
+        const water = new T.Mesh(new T.PlaneGeometry(500, 500), new T.MeshStandardMaterial({ color: 0x2a4148, roughness: 0.05, metalness: 0.25, normalMap: wnorm }));
         water.material.normalScale.set(0.35, 0.35); water.rotation.x = -Math.PI / 2; water.position.set(0, WATER, -200); water.receiveShadow = true; root.add(water);
         // Mist
         const mistTex = TX.canvasTex(TX.noise(256, 4, 4, 81), 4, 4, false);
-        const mists = [0.35, 1.1].map((y, i) => { const m = new T.Mesh(new T.PlaneGeometry(260, 160), new T.MeshBasicMaterial({ color: 0xe8eceb, alphaMap: mistTex, transparent: true, opacity: 0.22 - i * 0.07, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.set(0, y, -70); root.add(m); return m; });
+        const mists = [0.35, 1.1].map((y, i) => { const m = new T.Mesh(new T.PlaneGeometry(260, 160), new T.MeshBasicMaterial({ color: 0xe8eceb, alphaMap: mistTex, transparent: true, opacity: 0.22 - i * 0.07, depthWrite: false })); m.rotation.x = -Math.PI / 2; m.position.set(0, y, -70); m.userData.noMerge = true; root.add(m); return m; });
 
         // Dock
         const dockMat = TX.mat('dock', {}, { rough: 0.85, normal: 1.2 });
@@ -222,10 +220,11 @@ const SCENES = (() => {
         // Vegetation (instanced)
         const pineGeo = F.pine(), pineMat = new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
         const treeObs = [];
-        const forest = (count, fn) => { const im = new T.InstancedMesh(pineGeo, pineMat, count), m4 = new T.Matrix4(), q = new T.Quaternion(); for (let i = 0; i < count; i++) { const [x, z, s] = fn(i); q.setFromAxisAngle(new T.Vector3(0, 1, 0), TX.rand() * 6.28); m4.compose(new T.Vector3(x, h(x, z) - 0.1, z), q, new T.Vector3(s, s * TX.R(0.9, 1.25), s)); im.setMatrixAt(i, m4); } im.castShadow = !mobile; im.receiveShadow = true; root.add(im); };
+        const farGeo = F.pine(true);
+        const forest = (count, fn, geo = pineGeo) => { const im = new T.InstancedMesh(geo, pineMat, count), m4 = new T.Matrix4(), q = new T.Quaternion(); for (let i = 0; i < count; i++) { const [x, z, s] = fn(i); q.setFromAxisAngle(new T.Vector3(0, 1, 0), TX.rand() * 6.28); m4.compose(new T.Vector3(x, h(x, z) - 0.1, z), q, new T.Vector3(s, s * TX.R(0.9, 1.25), s)); im.setMatrixAt(i, m4); } im.castShadow = !mobile && geo === pineGeo; im.receiveShadow = geo === pineGeo; root.add(im); };
         TX.seed(101);
         const near = [];
-        while (near.length < (mobile ? 70 : 110)) {
+        while (near.length < Math.round(110 * D)) {
             const x = TX.R(-45, 45), z = TX.R(-1, 45);
             if (z - shoreZ(x) < 3 || pathD(x, z) < 2.5 || isClear(x, z, 4)) continue;
             if (x > -15 && x < 18.5 && z < 14) { if (TX.rand() > 0.12) continue; }
@@ -235,7 +234,7 @@ const SCENES = (() => {
             if (x > -17 && x < 19 && z < 15) treeObs.push([x - 0.25, z - 0.25, x + 0.25, z + 0.25]);
         }
         forest(near.length, i => near[i]);
-        forest(mobile ? 160 : 260, () => [TX.R(-110, 110), TX.R(-78, -58), TX.R(0.9, 1.6)]);
+        forest(Math.round(260 * D), () => [TX.R(-110, 110), TX.R(-78, -58), TX.R(0.9, 1.6)], farGeo);
         const rocks = new T.InstancedMesh(new T.DodecahedronGeometry(0.4, 1), mat('rock'), 40), m4 = new T.Matrix4(), q = new T.Quaternion();
         for (let i = 0; i < 40; i++) { const x = TX.R(-30, 30), z = shoreZ(x) + TX.R(-0.6, 1.5); q.setFromEuler(new T.Euler(TX.rand(), TX.rand() * 6, 0)); const s = TX.R(0.3, 1.1); m4.compose(new T.Vector3(x, h(x, z), z), q, new T.Vector3(s, s * 0.6, s)); rocks.setMatrixAt(i, m4); }
         rocks.castShadow = rocks.receiveShadow = true; root.add(rocks);
@@ -243,8 +242,8 @@ const SCENES = (() => {
         const tuft = new T.PlaneGeometry(0.6, 0.6); tuft.translate(0, 0.3, 0); const tuft2 = tuft.clone().rotateY(Math.PI / 2);
         const tuftGeo = T.BufferGeometryUtils.mergeGeometries([tuft, tuft2]);
         const grassField = (count, fn, scale) => { const im = new T.InstancedMesh(tuftGeo, new T.MeshStandardMaterial({ map: bladeTex, alphaTest: 0.4, side: T.DoubleSide, roughness: 0.9 }), count); for (let i = 0; i < count; i++) { const [x, z] = fn(); q.setFromAxisAngle(new T.Vector3(0, 1, 0), TX.rand() * 6.28); const s = scale * TX.R(0.6, 1.4); m4.compose(new T.Vector3(x, h(x, z) - 0.02, z), q, new T.Vector3(s, s, s)); im.setMatrixAt(i, m4); } root.add(im); };
-        grassField(mobile ? 220 : 420, () => { let x, z; do { x = TX.R(-24, 24); z = shoreZ(x) + TX.R(-0.5, 0.4); } while (isClear(x, z, 1.8) || Math.abs(x) < 1.2); return [x, z]; }, 1.25);
-        grassField(mobile ? 400 : 900, () => { let x, z; do { x = TX.R(-25, 25); z = TX.R(-1, 20); } while (z - shoreZ(x) < 1.5 || pathD(x, z) < 1.2 || isClear(x, z, 1.4)); return [x, z]; }, 0.6);
+        grassField(Math.round(420 * D), () => { let x, z; do { x = TX.R(-24, 24); z = shoreZ(x) + TX.R(-0.5, 0.4); } while (isClear(x, z, 1.8) || Math.abs(x) < 1.2); return [x, z]; }, 1.25);
+        grassField(Math.round(900 * D), () => { let x, z; do { x = TX.R(-25, 25); z = TX.R(-1, 20); } while (z - shoreZ(x) < 1.5 || pathD(x, z) < 1.2 || isClear(x, z, 1.4)); return [x, z]; }, 0.6);
 
         // Props from models
         const loads = [P.model('Lantern').then(m => { if (!m) return; m.scale.setScalar(0.065); m.position.set(-0.7, 0.42, -12.9); m.rotation.y = Math.PI / 2; root.add(m); })];
@@ -253,7 +252,7 @@ const SCENES = (() => {
         root.add(new T.HemisphereLight(0xcfe0ee, 0x45553a, 1.0));
         const sun = new T.DirectionalLight(0xffe2b8, 2.6); sun.position.set(30, 8, 12); sun.target.position.set(2, 0, 0);
         sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 80 });
-        sun.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
+        sun.shadow.mapSize.set(ctx.shadowSize || 2048, ctx.shadowSize || 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;
         root.add(sun, sun.target);
         point(root, 0xffb36b, 3, [-8.55, 2.4, 4.0]);
         point(root, 0xffc27a, 1.2, [-0.7, 1.6, -12.9]);
@@ -277,7 +276,7 @@ const SCENES = (() => {
     // MUSEUM — hall at night
     // =====================================================================
     async function museum(ctx) {
-        const { root, scene, renderer, mobile } = ctx, H = 5.5, W = 16, D = 14;
+        const { root, scene, renderer, mobile } = ctx, H = 5.5, W = 16, D = 14, SS = ctx.shadowSize || 2048;
         scene.background = new T.Color(0x05070a);
         scene.fog = null;
         floorMesh(root, W, D, TX.mat('marble', { tiles: 2, base: '#e2ded6', vein: '#8a8d94', sd: 7 }, { rough: 0.15 }), 0, 0, 0.5);
@@ -359,11 +358,10 @@ const SCENES = (() => {
         // Lighting
         root.add(new T.HemisphereLight(0x8fa3c8, 0x2a2420, 0.3));
         const moon = new T.DirectionalLight(0xa9bcff, 1.1); moon.position.set(1.5, 14, 1); moon.target.position.set(0, 0, -0.5);
-        moon.castShadow = true; Object.assign(moon.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 }); moon.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); moon.shadow.bias = -0.0005;
+        moon.castShadow = true; Object.assign(moon.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 1, far: 30 }); moon.shadow.mapSize.set(SS, SS); moon.shadow.bias = -0.0005;
         root.add(moon, moon.target);
-        spot(root, 0xffe2b8, 55, [0, 5.3, 1.6], [0, 1.0, -0.3], 0.36, 0.5, !mobile, mobile);
-        point(root, 0xffd9a0, 4, [-6.0, 2.6, -5.2]); point(root, 0xffd9a0, 4, [6.0, 2.6, -5.2]);
-        if (!mobile) { point(root, 0xffd9a0, 3, [-6.0, 2.6, 1.4]); point(root, 0xffd9a0, 3, [6.0, 2.6, 1.4]); point(root, 0x40ff90, 0.6, [0, 3, 6.5]); }
+        spot(root, 0xffe2b8, 55, [0, 5.3, 1.6], [0, 1.0, -0.3], 0.36, 0.5, !mobile, SS);
+        point(root, 0xffd9a0, 6, [-6.0, 2.6, -1.9]); point(root, 0xffd9a0, 6, [6.0, 2.6, -1.9]);
         point(root, 0xffd0a0, 1.5, [5.75, 1.3, 6.0]);
         scene.environment = envFrom(renderer, s => {
             const room = new T.Mesh(new T.BoxGeometry(16, 5.5, 14), basic(0x1d2a27, { side: T.BackSide })); room.position.y = 2.75; s.add(room);

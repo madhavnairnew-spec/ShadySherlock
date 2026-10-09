@@ -25,14 +25,27 @@ Every hypothesis starts equal. Each evidence item carries a likelihood ratio per
 
 ## Controls
 
-| | Desktop | Phone / tablet | VR |
+| | Desktop | Phone / tablet | VR headset |
 | --- | --- | --- | --- |
-| Look | Drag the mouse | Move the phone (Motion on), or drag | Head tracking |
-| Move | WASD / arrows, Shift to run | Left joystick | Thumbstick |
-| Examine | Click the item, or `E` | Aim the centre dot and tap **Examine**, or tap the item | Point the laser and pull the trigger |
-| Other | `Q` sweep · `R` AI recon · `B` board · `L` log · `Esc` menu | Buttons on screen | |
+| Look | Drag the mouse, or capture it (Settings) | Move the phone (Motion on), or drag | Head tracking |
+| Move | WASD / arrows, Shift to run | Left joystick, push to the edge to run | Left stick |
+| Turn | Mouse | Drag | Right stick (snap turn) |
+| Examine | Click the item, or `E` | Aim the centre dot and tap **Examine**, or tap the item | Point the laser, pull the trigger |
+| Case tools | `Q` sweep · `H` nearest lead · `R` AI recon · `B` board · `L` log · `Esc` menu | On-screen buttons | **A/X** case tablet · **B/Y** sweep |
+
+In VR everything happens inside the headset: a lobby to pick a case, and a case tablet with the evidence details, suspect probabilities, charges and the result screen.
 
 On iPhone and iPad the browser asks for motion-sensor permission when you enter a scene.
+
+## Settings and performance
+
+Settings (title screen or pause menu) cover graphics quality (Auto / High / Medium / Low), a frame-rate meter, music and effects volume, look sensitivity, invert-Y, mouse capture, phone motion controls and VR snap-turn angle.
+
+The renderer merges static geometry by material, renders shadows once instead of every frame, strips the expensive glass "transmission" pass and embedded lights from the models, and lowers the resolution automatically when the frame rate drops.
+
+## Music and sound
+
+Music and ambience are synthesised live with Web Audio (no audio files): a different theme per location that builds tension after the AI reconstruction and as you close in on the culprit.
 
 ## Running locally
 
@@ -51,11 +64,14 @@ On GitHub Pages it works as is. Motion controls need HTTPS.
 index.html          page shell, HUD and dialogs
 css/style.css       interface styling
 js/data.js          case files: suspects, evidence, lab data, likelihood ratios
+js/perf.js          quality presets, settings, geometry merging, dynamic resolution
 js/textures.js      procedural textures (wood, marble, rugs, skyline, paintings…)
 js/props.js         procedural props, figures and evidence objects; glTF loader
 js/scenes.js        penthouse, lake and museum environments
-js/controls.js      keyboard, joystick, touch-look, device motion, VR thumbsticks
-js/game.js          game flow, Bayesian engine, highlighting, AI reconstruction, scoring
+js/audio.js         procedural music, ambience and sound effects
+js/controls.js      keyboard, mouse, joystick, touch-look, device motion, VR movement
+js/vr.js            VR lobby, case tablet, lasers and notifications
+js/game.js          game flow, Bayesian engine, highlighting, AI reconstruction, scoring, settings
 assets/models/      compressed glTF models (see CREDITS.md)
 ```
 
