@@ -1,591 +1,645 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ShadySherlock // Forensic AI</title>
-    <meta name="description" content="Immersive Forensic AI Crime Scene Reconstruction" />
-    <!-- A-Frame VR/MR Library (Stable Release) -->
+    <meta name="description" content="XR crime-scene training with predictive AI reconstruction and Bayesian suspect probabilities" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <!-- A-Frame Environment Component for VR and Desktop Mode -->
     <script src="https://cdn.jsdelivr.net/npm/aframe-environment-component@1.3.7/dist/aframe-environment-component.min.js"></script>
-    
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@500;700&display=swap');
-
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #010610;
-            font-family: 'Rajdhani', sans-serif;
+        :root {
+            --bg: #010610; --panel: rgba(3, 18, 34, 0.9); --line: rgba(0, 255, 255, 0.35);
+            --cyan: #00ffff; --red: #ff3344; --amber: #ffcc00; --green: #00ff88;
+            --text: #e6f2ff; --muted: #8aa4bf;
         }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Rajdhani', sans-serif; font-size: 15px; }
+        button, select { font: inherit; color: inherit; }
+        .orb { font-family: 'Orbitron', sans-serif; letter-spacing: 1px; }
 
-        /* 2D Desktop Overlay HUD */
-        #desktop-hud {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            box-sizing: border-box;
-            padding: 20px;
-            transition: opacity 0.5s ease;
+        /* ---------- 2D HUD layout ---------- */
+        #hud {
+            position: fixed; inset: 0; z-index: 10; pointer-events: none; padding: 12px;
+            display: grid; gap: 12px; grid-template-columns: 330px 1fr 330px; grid-template-rows: auto minmax(0, 1fr) auto;
         }
+        #hud > * { pointer-events: auto; }
+        .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(8px); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
 
-        .hud-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid rgba(0, 255, 255, 0.4);
-            background: linear-gradient(180deg, rgba(3, 22, 40, 0.9) 0%, rgba(3, 22, 40, 0) 100%);
-            backdrop-filter: blur(8px);
-            padding: 15px 30px;
-            border-radius: 6px;
-            pointer-events: auto;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        header { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 10px 18px; flex-wrap: wrap; }
+        .brand { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+        .brand h1 { margin: 0; font-size: 22px; color: #fff; text-shadow: 0 0 10px rgba(0, 255, 255, 0.6); white-space: nowrap; }
+        .subtitle { color: var(--cyan); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pulsar { width: 11px; height: 11px; flex: none; border-radius: 50%; background: var(--red); box-shadow: 0 0 12px var(--red); animation: pulse 1.5s infinite alternate; }
+        @keyframes pulse { from { transform: scale(0.85); opacity: 0.6; } to { transform: scale(1.2); opacity: 1; } }
+        #clock { color: var(--cyan); font-size: 16px; }
+
+        select, .btn {
+            background: #06223b; border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; cursor: pointer;
         }
+        .btn:hover, select:hover { border-color: var(--cyan); }
+        .btn:disabled { opacity: 0.4; cursor: default; }
+        .btn.primary { background: #3a0a12; border-color: var(--red); color: #ffb3bb; font-weight: 700; }
+        .btn.primary:not(:disabled):hover { box-shadow: 0 0 12px var(--red); }
+        .mobile-only { display: none; }
 
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 15px;
+        .panel { overflow-y: auto; padding: 14px; }
+        #case-panel { grid-column: 1; grid-row: 2; }
+        #suspect-panel { grid-column: 3; grid-row: 2; }
+        .panel h2 { font-family: 'Orbitron', sans-serif; font-size: 12px; color: var(--cyan); margin: 14px 0 8px; letter-spacing: 1.5px; }
+        .panel h2:first-child { margin-top: 0; }
+        .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
+        .muted { color: var(--muted); }
+        p { margin: 4px 0; line-height: 1.35; }
+
+        .ev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+        .ev-list button {
+            width: 100%; text-align: left; display: flex; gap: 8px; align-items: center; padding: 6px 8px;
+            background: rgba(0, 255, 255, 0.04); border: 1px solid transparent; border-radius: 4px; cursor: pointer;
         }
+        .ev-list button:hover { border-color: var(--line); }
+        .ev-list button.sel { border-color: var(--amber); background: rgba(255, 204, 0, 0.08); }
+        .ev-num { font-family: 'Orbitron', sans-serif; font-size: 11px; color: var(--amber); width: 24px; }
+        .ev-list .ai .ev-num { color: var(--red); }
+        .ev-check { margin-left: auto; color: var(--green); font-weight: 700; }
 
-        .pulsar {
-            width: 12px;
-            height: 12px;
-            background-color: #ff3344;
-            border-radius: 50%;
-            box-shadow: 0 0 12px #ff3344;
-            animation: pulse 1.5s infinite alternate;
+        #detail { border-left: 3px solid var(--amber); padding: 6px 10px; background: rgba(255, 204, 0, 0.05); }
+        #detail .insight { color: var(--cyan); }
+        .impact { font-size: 13px; margin-top: 6px; }
+        .up { color: var(--green); } .down { color: var(--red); }
+
+        .sus { padding: 8px 0; border-bottom: 1px solid rgba(0, 255, 255, 0.12); }
+        .sus-top { display: flex; align-items: baseline; gap: 6px; }
+        .sus-name { font-weight: 700; font-size: 16px; }
+        .sus-pct { margin-left: auto; font-family: 'Orbitron', sans-serif; font-size: 15px; }
+        .delta { font-size: 11px; font-weight: 700; min-width: 34px; text-align: right; }
+        .bar { height: 7px; background: rgba(255, 255, 255, 0.08); border-radius: 4px; margin: 5px 0; overflow: hidden; }
+        .bar i { display: block; height: 100%; background: var(--cyan); transition: width 0.6s ease; }
+        .sus.lead .bar i { background: var(--red); box-shadow: 0 0 8px var(--red); }
+        .why { font-size: 12px; }
+        .accuse { font-size: 12px; padding: 2px 8px; margin-top: 4px; }
+
+        #verdict { margin-top: 12px; padding: 10px; border: 1px dashed var(--line); border-radius: 4px; }
+        #verdict.ok { border-color: var(--green); } #verdict.bad { border-color: var(--red); }
+        .fine { font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+        footer { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 10px 18px; margin-right: 150px; flex-wrap: wrap; }
+        #progress { color: var(--green); font-size: 12px; text-shadow: 0 0 8px rgba(0, 255, 136, 0.5); }
+        .hint { color: var(--muted); font-size: 13px; flex: 1; min-width: 200px; }
+
+        #toast {
+            position: fixed; left: 50%; top: 90px; transform: translateX(-50%); z-index: 30; padding: 10px 18px; pointer-events: none;
+            opacity: 0; transition: opacity 0.3s; border-color: var(--amber); max-width: calc(100% - 32px);
         }
+        #toast.show { opacity: 1; }
 
-        @keyframes pulse {
-            0% { transform: scale(0.85); opacity: 0.6; box-shadow: 0 0 6px #ff3344; }
-            100% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 16px #ff3344; }
-        }
+        #about { position: fixed; inset: 0; z-index: 40; display: none; place-items: center; background: rgba(0, 0, 0, 0.6); padding: 16px; }
+        #about.open { display: grid; }
+        #about .box { max-width: 620px; max-height: 100%; overflow-y: auto; padding: 22px; }
+        #about h3 { font-family: 'Orbitron', sans-serif; color: var(--cyan); font-size: 14px; margin: 16px 0 6px; }
 
-        .brand h1 {
-            margin: 0;
-            font-family: 'Orbitron', sans-serif;
-            color: #ffffff;
-            font-size: 26px;
-            letter-spacing: 2px;
-            text-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
-        }
-
-        .subtitle {
-            color: #00ffff;
-            font-size: 14px;
-            letter-spacing: 1px;
-            font-weight: 700;
-            font-family: 'Orbitron', sans-serif;
-        }
-
-        .system-time {
-            font-family: 'Orbitron', sans-serif;
-            color: #00ffff;
-            font-size: 18px;
-            letter-spacing: 1px;
-            text-shadow: 0 0 8px rgba(0, 255, 255, 0.4);
-        }
-
-        .hud-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-top: 2px solid rgba(0, 255, 255, 0.4);
-            background: linear-gradient(0deg, rgba(3, 22, 40, 0.9) 0%, rgba(3, 22, 40, 0) 100%);
-            backdrop-filter: blur(8px);
-            padding: 15px 30px;
-            border-radius: 6px;
-            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
-        }
-
-        .info-tag {
-            color: #00ff55;
-            font-weight: 700;
-            letter-spacing: 1px;
-            font-size: 14px;
-            font-family: 'Orbitron', sans-serif;
-            text-shadow: 0 0 8px rgba(0, 255, 85, 0.5);
-        }
-
-        .instructions {
-            color: #bbbbbb;
-            font-size: 14px;
-            letter-spacing: 0.5px;
-        }
-
-        /* Hide the 2D desktop HUD in WebXR VR/AR immersive modes */
-        .a-in-vr #desktop-hud {
-            display: none;
-            opacity: 0;
-            pointer-events: none;
+        @media (max-width: 860px) {
+            #hud { grid-template-columns: 1fr; padding: 8px; gap: 8px; }
+            .mobile-only { display: inline-block; }
+            .subtitle, #clock { display: none; }
+            .panel { display: none; grid-column: 1 !important; grid-row: 2 !important; max-height: 100%; }
+            .panel.open { display: block; }
+            footer { margin-right: 0; margin-bottom: 64px; }
+            .hint { display: none; }
         }
     </style>
 
     <script>
         // =========================================================================
-        // WEB AUDIO API - FUTURISTIC SYNTHESIZED SOUND EFFECTS
+        // CASE FILES — likelihood ratio (lr) per hypothesis: >1 supports, <1 weakens
+        // =========================================================================
+        const CASES = [
+            {
+                id: 'penthouse', code: 'SS-2026-014', title: 'The Penthouse Shooting', type: 'Homicide', env: 'tron', focus: 'body',
+                summary: 'Art dealer Victor Hale, 52, found shot in his penthouse study at 23:40. Building records show three people with access that night.',
+                suspects: [
+                    { id: 'mara', name: 'Mara Hale', role: 'Spouse · 1.62 m', motive: 'Sole beneficiary of a $4M life policy.' },
+                    { id: 'dex', name: 'Dex Romano', role: 'Business partner · 1.88 m', motive: 'Hale was about to expose his forged-provenance scheme.' },
+                    { id: 'ivan', name: 'Ivan Petrov', role: 'Night guard · 1.75 m', motive: 'Recently disciplined by Hale for sleeping on shift.' },
+                    { id: 'self', name: 'Self-inflicted', role: 'Alternative hypothesis', motive: 'Victim carried $1.2M in gallery debts.' }
+                ],
+                evidence: [
+                    { id: 'E1', title: 'Discarded Pistol', kind: 'weapon', pos: [0.6, 0.3], desc: "9 mm pistol registered to the victim, 0.5 m from his right hand. Grip and trigger wiped clean.", insight: 'Wiped prints are inconsistent with suicide: someone handled the weapon after discharge.', lr: { mara: 1.3, dex: 1.3, ivan: 1.2, self: 0.25 } },
+                    { id: 'E2', title: 'Discharge Point', kind: 'burn', pos: [-1.2, 1.3], desc: 'Gunshot residue and a spent casing at the study doorway, 2.1 m from the body.', insight: 'A firing distance over 2 m effectively rules out a self-inflicted wound.', lr: { self: 0.08, mara: 1, dex: 1.1, ivan: 1.2 } },
+                    { id: 'E3', title: 'Two Wine Glasses', kind: 'glass', pos: [1.0, -0.6], desc: 'Two half-finished glasses of 1998 Barolo on the side table. No lipstick on either.', insight: 'Victim was drinking with a familiar visitor. Absence of lipstick weakens, but does not exclude, the spouse.', lr: { mara: 0.7, dex: 1.6, ivan: 0.5, self: 0.6 } },
+                    { id: 'E4', title: 'Muddy Shoe Print', kind: 'print', pos: [-0.5, 0.9], desc: "Partial men's US size 11 print with fresh mud. It rained 22:00–23:00.", insight: 'Shoe size and wet mud point to a tall male arriving from outside during the rain.', lr: { mara: 0.3, dex: 1.7, ivan: 1.1, self: 0.6 } },
+                    { id: 'E5', title: 'Shattered Phone', kind: 'frag', pos: [-0.8, -0.5], desc: "Victim's phone, stamped into fragments. Storage chip possibly intact.", insight: 'Unreadable as found. Run AI reconstruction to reassemble the casing and recover the chip.', lr: {} }
+                ],
+                recon: {
+                    traj: { from: [-1.2, 1.45, 1.3], to: [0, 0.2, 0.3] }, ghost: true, frag: 'E5',
+                    reveals: [
+                        { id: 'R1', title: 'Recovered Message', kind: 'data', pos: [-0.8, -0.15], desc: 'Last message on the reassembled chip, 22:51, from "D.R.": "Coming up. We settle this tonight."', insight: 'Places Dex Romano at the scene minutes before the estimated time of death.', lr: { dex: 3, mara: 0.6, ivan: 0.6, self: 0.4 } },
+                        { id: 'R2', title: 'Shooter Height Projection', kind: 'data', pos: [-1.2, 0.9], desc: 'Trajectory back-projected from the wound angle: muzzle height 1.45 m, shooter standing.', insight: 'Projected shooter height 1.80–1.95 m. Matches Dex (1.88 m); Mara (1.62 m) is unlikely.', lr: { dex: 1.9, mara: 0.3, ivan: 1.1, self: 0.1 } }
+                    ]
+                },
+                solution: 'dex',
+                explain: "Dex Romano shot Hale from the doorway after their late meeting, wiped the victim's pistol and dropped it by the body to stage a suicide. The recovered message and the projected shooter height both point to him."
+            },
+            {
+                id: 'warehouse', code: 'SS-2026-022', title: 'Riverside Warehouse Fire', type: 'Arson', env: 'volcano', focus: 'scorch',
+                summary: "A fire gutted Voss Logistics' riverside warehouse at 02:15. No casualties. The insurer suspects arson; the owner blames old wiring.",
+                suspects: [
+                    { id: 'voss', name: 'Gerald Voss', role: 'Owner', motive: '$900K in debt; $2.3M fire policy renewed last month.' },
+                    { id: 'tasha', name: 'Tasha Lin', role: 'Ex-employee', motive: 'Fired two weeks ago; threatened to "burn the place down".' },
+                    { id: 'kurt', name: 'Kurt Brandt', role: 'Competitor', motive: 'Lost a major contract to Voss in March.' },
+                    { id: 'fault', name: 'Electrical fault', role: 'Accident hypothesis', motive: 'Wiring last inspected in 2009.' }
+                ],
+                evidence: [
+                    { id: 'E1', title: 'Pour Pattern', kind: 'burn', pos: [0.3, 0.2], desc: 'Three separate low-burn origins joined by irregular trailers on the concrete.', insight: 'Multiple disconnected origins indicate a deliberately set fire, not an electrical fault.', lr: { fault: 0.1, voss: 1.1, tasha: 1.1, kurt: 1.1 } },
+                    { id: 'E2', title: 'Rear Door Lock', kind: 'lock', pos: [-1.2, -0.8], desc: 'Rear fire-door unforced; deadbolt opened with a key. Tasha returned her key on dismissal.', insight: 'Entry with a key favours someone with current access.', lr: { voss: 2, tasha: 0.6, kurt: 0.4, fault: 1 } },
+                    { id: 'E3', title: 'Breaker Panel', kind: 'panel', pos: [1.2, -0.9], desc: 'Main breakers intact; no arc beads on recovered wiring.', insight: 'No sign of electrical failure at or near any origin.', lr: { fault: 0.2 } },
+                    { id: 'E4', title: 'Inventory Ledger', kind: 'data', pos: [1.0, 0.9], desc: 'High-value stock ($600K) moved to an off-site unit three days before the fire.', insight: 'Removing valuables before a fire is a classic insurance-fraud indicator.', lr: { voss: 2.4, tasha: 0.8, kurt: 0.8, fault: 0.7 } },
+                    { id: 'E5', title: 'Melted Fuel Can', kind: 'frag', pos: [-0.6, 0.7], desc: 'Fragments of a plastic fuel can near origin #2. Label melted.', insight: 'Unidentifiable as found. Run AI reconstruction to reassemble the label and barcode.', lr: {} }
+                ],
+                recon: {
+                    traj: { from: [1.1, 0.4, -0.3], to: [0.3, 0.05, 0.2] }, ghost: false, frag: 'E5',
+                    reveals: [
+                        { id: 'R1', title: 'Recovered Barcode', kind: 'data', pos: [-0.6, 1.05], desc: 'Can bought at 18:05 the day before at Hollis Hardware, paid with the Voss Logistics company card.', insight: "Ties the accelerant container to a company account; Tasha's card access was revoked on dismissal.", lr: { voss: 2.2, tasha: 0.5, kurt: 0.4, fault: 0.3 } },
+                        { id: 'R2', title: 'Fire Origin Projection', kind: 'data', pos: [1.1, -0.3], desc: "Burn-vector back-projection places first ignition inside the locked manager's office.", insight: 'Only the owner holds the office key.', lr: { voss: 1.8, tasha: 0.5, kurt: 0.5, fault: 0.6 } }
+                    ]
+                },
+                solution: 'voss',
+                explain: 'Gerald Voss moved his valuable stock out, let himself in with his own keys, and set fires from his office using a fuel can bought on the company card, hoping to collect the $2.3M policy.'
+            },
+            {
+                id: 'museum', code: 'SS-2026-031', title: 'The Meridian Diamond Heist', type: 'Theft', env: 'starry', focus: 'pedestal',
+                summary: 'The 40-carat Meridian Diamond vanished from the Hall of Gems between 01:00 and 01:30. No exterior door was forced.',
+                suspects: [
+                    { id: 'elena', name: 'Dr. Elena Ruiz', role: 'Curator', motive: 'Passed over for director; private debts.' },
+                    { id: 'sam', name: 'Sam Okafor', role: 'Night guard', motive: 'Approached by a fence last year (and reported it).' },
+                    { id: 'leo', name: 'Leo Marsh', role: 'HVAC contractor', motive: 'Serviced the gallery ducts last week; prior burglary arrest.' },
+                    { id: 'crew', name: 'Outside crew', role: 'Unknown professionals', motive: 'Similar heists in two other cities.' }
+                ],
+                evidence: [
+                    { id: 'E1', title: 'Alarm Log', kind: 'data', pos: [1.1, 0.6], desc: 'Motion sensors switched to maintenance mode at 01:12 with a valid maintenance code.', insight: 'Requires a maintenance code: only the curator and the contractor had one.', lr: { elena: 1.6, leo: 1.7, sam: 0.9, crew: 0.4 } },
+                    { id: 'E2', title: 'Displaced Vent Panel', kind: 'vent', pos: [-1.1, -0.7], desc: 'Ceiling vent above the hall reseated crooked; dust track disturbed inside the duct.', insight: 'Entry through the ducts requires knowledge of the HVAC layout.', lr: { leo: 2.2, crew: 1.3, elena: 0.6, sam: 0.5 } },
+                    { id: 'E3', title: 'Boot Print', kind: 'print', pos: [-0.4, 0.4], desc: 'Size 10 work boot, industrial lug tread, dusted with fibreglass insulation.', insight: 'Fibreglass dust indicates the wearer came through the ductwork.', lr: { leo: 1.9, crew: 1.2, sam: 0.6, elena: 0.3 } },
+                    { id: 'E4', title: 'Guard Logbook', kind: 'data', pos: [1.2, -0.6], desc: "Sam's rounds logged on time except a gap from 01:10 to 01:25.", insight: 'The gap overlaps the theft window, but Sam says he was answering a fault alarm in the east wing.', lr: { sam: 1.6 } },
+                    { id: 'E5', title: 'Shattered Display Glass', kind: 'frag', pos: [0.4, -0.3], desc: 'Laminated display glass in fragments around the pedestal.', insight: 'Run AI reconstruction to reassemble the pane and read the fracture pattern.', lr: {} }
+                ],
+                recon: {
+                    traj: { from: [-1.1, 2.2, -0.7], to: [0, 1.0, 0] }, ghost: false, frag: 'E5',
+                    reveals: [
+                        { id: 'R1', title: 'Reassembled Glass', kind: 'data', pos: [0.4, 0.05], desc: 'Circular cutter score on the pane, with grey duct-sealant mastic smeared on the edge.', insight: 'Duct sealant links the cutter to someone who had been working inside the HVAC system.', lr: { leo: 2.6, crew: 0.9, elena: 0.5, sam: 0.5 } },
+                        { id: 'R2', title: 'Route Projection', kind: 'data', pos: [-1.1, -0.3], desc: 'Projected route vent → case → vent in under 4 minutes, entirely inside the one camera blind spot.', insight: 'The route needs both the duct layout and camera coverage map.', lr: { leo: 1.6, elena: 1.2, crew: 0.6, sam: 0.9 } }
+                    ]
+                },
+                solution: 'leo',
+                explain: "Leo Marsh used the maintenance code from his service visit, tripped the east-wing fault alarm to draw Sam away, dropped in through the duct he had mapped, and cut the case. Sealant from his own repair job gave him away."
+            }
+        ];
+
+        const KIND_COLOR = { weapon: '#888888', burn: '#ff5522', glass: '#aaddff', print: '#a0703a', frag: '#aa33ff', data: '#00ff88', lock: '#ccaa33', panel: '#667788', vent: '#99aabb' };
+
+        // =========================================================================
+        // WEB AUDIO — synthesized UI sounds
         // =========================================================================
         const Synth = {
             ctx: null,
-            init() {
-                if (!this.ctx) {
-                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-                }
-                if (this.ctx.state === 'suspended') {
-                    this.ctx.resume();
-                }
+            tone(type, f0, f1, dur, vol, delay = 0) {
+                try {
+                    this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+                    if (this.ctx.state === 'suspended') this.ctx.resume();
+                    const c = this.ctx, t = c.currentTime + delay, o = c.createOscillator(), g = c.createGain();
+                    o.type = type;
+                    o.frequency.setValueAtTime(f0, t);
+                    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+                    g.gain.setValueAtTime(vol, t);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+                    o.connect(g); g.connect(c.destination);
+                    o.start(t); o.stop(t + dur);
+                } catch (e) { /* audio unavailable */ }
             },
-            playHover() {
-                this.init();
-                const ctx = this.ctx;
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(900, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.04);
-                
-                gain.gain.setValueAtTime(0.04, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
-                
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                
-                osc.start();
-                osc.stop(ctx.currentTime + 0.04);
-            },
-            playSelect() {
-                this.init();
-                const ctx = this.ctx;
-                
-                const playTone = (freq, delay, duration, vol) => {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
-                    
-                    gain.gain.setValueAtTime(0, ctx.currentTime + delay);
-                    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.02);
-                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.start(ctx.currentTime + delay);
-                    osc.stop(ctx.currentTime + delay + duration);
-                };
-                
-                playTone(523.25, 0, 0.15, 0.08); // C5
-                playTone(659.25, 0.04, 0.22, 0.08); // E5
-                playTone(783.99, 0.08, 0.35, 0.12); // G5
-            },
-            playFilter() {
-                this.init();
-                const ctx = this.ctx;
-                const osc = ctx.createOscillator();
-                const filter = ctx.createBiquadFilter();
-                const gain = ctx.createGain();
-                
-                osc.type = 'sawtooth';
-                osc.frequency.setValueAtTime(120, ctx.currentTime);
-                osc.frequency.exponentialRampToValueAtTime(750, ctx.currentTime + 0.22);
-                
-                filter.type = 'lowpass';
-                filter.Q.setValueAtTime(10, ctx.currentTime);
-                filter.frequency.setValueAtTime(150, ctx.currentTime);
-                filter.frequency.exponentialRampToValueAtTime(2200, ctx.currentTime + 0.22);
-                
-                gain.gain.setValueAtTime(0.06, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-                
-                osc.connect(filter);
-                filter.connect(gain);
-                gain.connect(ctx.destination);
-                
-                osc.start();
-                osc.stop(ctx.currentTime + 0.22);
-            }
+            hover() { this.tone('sine', 900, 300, 0.04, 0.04); },
+            select() { [523.25, 659.25, 783.99].forEach((f, i) => this.tone('triangle', f, 0, 0.15 + i * 0.1, 0.08, i * 0.04)); },
+            scan() { this.tone('sawtooth', 120, 750, 0.3, 0.05); },
+            verdict(ok) { (ok ? [523, 659, 784, 1047] : [300, 220]).forEach((f, i) => this.tone('triangle', f, 0, 0.3, 0.08, i * 0.1)); }
         };
 
         // =========================================================================
-        // CUSTOM A-FRAME COMPONENTS
+        // STATE + BAYESIAN ENGINE
         // =========================================================================
+        const S = { c: null, examined: new Set(), revealed: false, sel: null, prev: null, accused: null };
+        const $ = s => document.querySelector(s);
+        const pct = x => Math.round(x * 100);
+        const findEv = id => S.c.evidence.concat(S.c.recon.reveals).find(e => e.id === id);
+        const visibleEv = () => S.c.evidence.concat(S.revealed ? S.c.recon.reveals : []);
+        const name = id => S.c.suspects.find(s => s.id === id).name;
 
-        // Passthrough Manager
+        // Uniform prior × product of likelihood ratios of examined evidence, normalised
+        function posterior() {
+            const p = {};
+            S.c.suspects.forEach(s => p[s.id] = 1);
+            S.examined.forEach(id => { const lr = findEv(id).lr; for (const k in lr) p[k] *= lr[k]; });
+            const total = Object.values(p).reduce((a, b) => a + b, 0);
+            for (const k in p) p[k] /= total;
+            return p;
+        }
+
+        // Strongest supporting / weakening examined evidence for a suspect
+        function drivers(sid) {
+            let up = null, down = null;
+            S.examined.forEach(id => {
+                const e = findEv(id), r = e.lr[sid] ?? 1;
+                if (r > 1 && (!up || r > up.r)) up = { e, r };
+                if (r < 1 && (!down || r < down.r)) down = { e, r };
+            });
+            return { up, down };
+        }
+
+        // =========================================================================
+        // ACTIONS
+        // =========================================================================
+        function loadCase(id) {
+            S.c = CASES.find(c => c.id === id) || CASES[0];
+            Object.assign(S, { examined: new Set(), revealed: false, sel: null, prev: null, accused: null });
+            $('#case-select').value = S.c.id;
+            $('#environment').setAttribute('environment', `preset: ${S.c.env}; playArea: 1.5; ground: flat; groundYScale: 5; lighting: point; lightPosition: 0 4 -2`);
+            buildScene();
+            render();
+        }
+
+        function examine(id) {
+            if (!S.examined.has(id)) { S.prev = posterior(); S.examined.add(id); }
+            S.sel = id;
+            Synth.select();
+            document.querySelectorAll('.hl').forEach(r => r.setAttribute('visible', r.dataset.eid === id));
+            render();
+        }
+
+        function reconstruct() {
+            if (S.revealed) return;
+            S.revealed = true;
+            Synth.scan();
+            const root = $('#case-root'), r = S.c.recon;
+            document.querySelectorAll('.frag').forEach(f => f.emit('reassemble'));
+
+            const from = r.traj.from.join(' '), to = r.traj.to.join(' ');
+            const t = el('a-entity', {}, root);
+            el('a-entity', { line: `start: ${from}; end: ${to}; color: #ff3344; opacity: 0.9` }, t);
+            el('a-sphere', { position: from, radius: 0.035, material: 'color: #ffff00; emissive: #ffff00; emissiveIntensity: 1', animation: `property: position; from: ${from}; to: ${to}; dur: 1400; easing: easeInQuad; loop: true` }, t);
+            if (r.ghost) {
+                const g = el('a-entity', { position: `${r.traj.from[0]} 0 ${r.traj.from[2]}` }, t);
+                el('a-cylinder', { position: '0 0.7 0', radius: 0.18, height: 1.4, color: '#ff3344', wireframe: true, opacity: 0.4 }, g);
+                el('a-sphere', { position: '0 1.62 0', radius: 0.12, color: '#ff3344', wireframe: true, opacity: 0.4 }, g);
+            }
+
+            setTimeout(() => {
+                r.reveals.forEach(e => addMarker(e, root));
+                toast(`AI reconstruction recovered ${r.reveals.length} new findings (marked AI). Examine them.`);
+                render();
+            }, 1600);
+            render();
+        }
+
+        function accuse(sid) {
+            if (S.examined.size < 3) return toast('Examine at least 3 pieces of evidence before making an accusation.');
+            S.accused = sid;
+            Synth.verdict(sid === S.c.solution);
+            render();
+        }
+
+        // =========================================================================
+        // 3D SCENE BUILDERS
+        // =========================================================================
+        function el(tag, attrs, parent) {
+            const e = document.createElement(tag);
+            for (const k in attrs) e.setAttribute(k, attrs[k]);
+            if (parent) parent.appendChild(e);
+            return e;
+        }
+
+        function addMarker(e, root) {
+            const isAI = e.id.startsWith('R'), col = isAI ? '#ff3344' : '#ffcc00';
+            const m = el('a-entity', { class: 'clickable', position: `${e.pos[0]} 0 ${e.pos[1]}` }, root);
+            el('a-cone', { 'radius-bottom': 0.05, 'radius-top': 0.01, height: 0.15, position: '0 0.075 0', color: col }, m);
+            el('a-text', { value: e.id, position: '0 0.22 0', align: 'center', color: col, scale: '0.5 0.5 0.5' }, m);
+            const ring = el('a-ring', { class: 'hl', position: '0 0.02 0', rotation: '-90 0 0', 'radius-inner': 0.17, 'radius-outer': 0.2, color: '#ff3344', visible: false }, m);
+            ring.dataset.eid = e.id;
+            if (e.kind !== 'frag') el('a-box', { position: '0.09 0.02 0.06', width: 0.08, height: 0.04, depth: 0.1, color: KIND_COLOR[e.kind] || '#888' }, m);
+            el('a-box', { position: '0 0.12 0', width: 0.35, height: 0.3, depth: 0.35, material: 'transparent: true; opacity: 0' }, m);
+            m.addEventListener('click', () => examine(e.id));
+            m.addEventListener('mouseenter', () => { Synth.hover(); m.setAttribute('animation__h', 'property: scale; to: 1.15 1.15 1.15; dur: 150'); });
+            m.addEventListener('mouseleave', () => m.setAttribute('animation__h', 'property: scale; to: 1 1 1; dur: 150'));
+            return m;
+        }
+
+        function buildScene() {
+            const root = $('#case-root');
+            while (root.firstChild) root.removeChild(root.firstChild);
+
+            const wf = { color: '#00ffff', opacity: 0.35, wireframe: true };
+            if (S.c.focus === 'body') {
+                const b = el('a-entity', {}, root);
+                el('a-sphere', { ...wf, position: '0 0.1 0.8', radius: 0.15 }, b);
+                el('a-box', { ...wf, position: '0 0.1 0.3', width: 0.4, height: 0.15, depth: 0.7 }, b);
+                el('a-cylinder', { ...wf, position: '-0.3 0.1 0.3', rotation: '0 0 90', radius: 0.05, height: 0.5 }, b);
+                el('a-cylinder', { ...wf, position: '0.35 0.1 0.1', rotation: '0 45 90', radius: 0.05, height: 0.5 }, b);
+                el('a-cylinder', { ...wf, position: '-0.15 0.1 -0.4', rotation: '90 0 0', radius: 0.06, height: 0.8 }, b);
+                el('a-cylinder', { ...wf, position: '0.15 0.1 -0.4', rotation: '90 15 0', radius: 0.06, height: 0.8 }, b);
+            } else if (S.c.focus === 'scorch') {
+                el('a-circle', { position: '0 0.012 0', rotation: '-90 0 0', radius: 1.3, color: '#140804', opacity: 0.85 }, root);
+                [[0.3, 0.2], [-0.5, 0.6], [1.1, -0.3]].forEach(([x, z]) =>
+                    el('a-circle', { position: `${x} 0.015 ${z}`, rotation: '-90 0 0', radius: 0.18, color: '#ff5522', opacity: 0.6, animation: 'property: material.opacity; from: 0.3; to: 0.8; dir: alternate; loop: true; dur: 900' }, root));
+            } else if (S.c.focus === 'pedestal') {
+                el('a-cylinder', { position: '0 0.45 0', radius: 0.2, height: 0.9, color: '#1c2e44' }, root);
+                el('a-box', { ...wf, position: '0 1.05 0', width: 0.3, height: 0.3, depth: 0.3 }, root);
+            }
+
+            S.c.evidence.forEach(e => {
+                const m = addMarker(e, root);
+                if (e.id === S.c.recon.frag) {
+                    [[-0.15, 0.05], [0.12, 0.1], [0, -0.15], [0.14, -0.08]].forEach(([x, z], i) =>
+                        el('a-box', { class: 'frag', position: `${x} 0.02 ${z}`, rotation: `0 ${i * 40} 20`, scale: '0.07 0.015 0.07', color: '#aa33ff',
+                            animation__re: `property: position; to: 0.09 ${0.03 + i * 0.016} 0.06; startEvents: reassemble; dur: 1800; easing: easeInOutElastic`,
+                            animation__rr: 'property: rotation; to: 0 0 0; startEvents: reassemble; dur: 1800' }, m));
+                }
+            });
+
+            // 3D suspect board rows
+            const rows = $('#board-rows');
+            while (rows.firstChild) rows.removeChild(rows.firstChild);
+            S.c.suspects.forEach((s, i) => {
+                const y = -i * 0.13;
+                el('a-text', { value: s.name, position: `-0.55 ${y} 0`, width: 1.6, font: 'mozillavr', color: '#ffffff' }, rows);
+                el('a-plane', { position: `0.25 ${y} 0`, width: 0.5, height: 0.04, color: '#0c355a', material: 'shader: flat' }, rows);
+                el('a-plane', { id: `bar3d-${s.id}`, 'data-y': y, position: `0 ${y} 0.001`, width: 1, height: 0.04, color: '#00ffff', material: 'shader: flat' }, rows);
+                el('a-text', { id: `pct3d-${s.id}`, value: '--', position: `0.53 ${y} 0`, width: 1.6, font: 'mozillavr', color: '#00ffff' }, rows);
+            });
+        }
+
+        // =========================================================================
+        // RENDERING (2D HUD + 3D panels)
+        // =========================================================================
+        function render() {
+            const c = S.c, p = posterior(), ev = visibleEv();
+            const lead = Object.keys(p).reduce((a, b) => p[a] >= p[b] ? a : b);
+            const any = S.examined.size > 0;
+
+            // Case panel
+            $('#case-head').innerHTML = `<span class="tag" style="color:var(--red)">${c.type}</span> <span class="muted orb" style="font-size:11px">${c.code}</span>
+                <h2 style="margin-top:8px;font-size:15px;color:#fff">${c.title}</h2><p>${c.summary}</p>`;
+            $('#ev-list').innerHTML = ev.map(e => `<li><button data-eid="${e.id}" class="${e.id === S.sel ? 'sel' : ''} ${e.id[0] === 'R' ? 'ai' : ''}">
+                <span class="ev-num">${e.id}</span>${e.title}${e.id[0] === 'R' ? ' <span class="tag" style="color:var(--red)">AI</span>' : ''}
+                <span class="ev-check">${S.examined.has(e.id) ? '✓' : ''}</span></button></li>`).join('');
+
+            const se = S.sel && findEv(S.sel);
+            if (se) {
+                const fx = Object.entries(se.lr).filter(([, r]) => r !== 1).sort((a, b) => b[1] - a[1])
+                    .map(([k, r]) => `<span class="${r > 1 ? 'up' : 'down'}">${name(k)} ×${r}</span>`).join(' · ');
+                $('#detail').innerHTML = `<b>${se.id} · ${se.title}</b><p>${se.desc}</p><p class="insight">▸ ${se.insight}</p>
+                    <div class="impact muted">Likelihood ratios: ${fx || 'none (needs reconstruction)'}</div>`;
+            } else {
+                $('#detail').innerHTML = '<p class="muted">Select a marker in the scene or an item below to examine it.</p>';
+            }
+
+            // Suspect panel
+            $('#sus-list').innerHTML = c.suspects.map(s => {
+                const d = S.prev && any ? pct(p[s.id]) - pct(S.prev[s.id]) : 0, w = drivers(s.id);
+                return `<div class="sus ${any && s.id === lead ? 'lead' : ''}">
+                    <div class="sus-top"><span class="sus-name">${s.name}</span><span class="delta ${d > 0 ? 'up' : 'down'}">${d ? (d > 0 ? '▲' : '▼') + Math.abs(d) : ''}</span>
+                    <span class="sus-pct">${pct(p[s.id])}%</span></div>
+                    <div class="muted" style="font-size:12px">${s.role} — ${s.motive}</div>
+                    <div class="bar"><i style="width:${p[s.id] * 100}%"></i></div>
+                    <div class="why">${w.up ? `<span class="up">▲ ${w.up.e.title}</span> ` : ''}${w.down ? `<span class="down">▼ ${w.down.e.title}</span>` : ''}</div>
+                    <button class="btn accuse" data-sid="${s.id}">Accuse</button></div>`;
+            }).join('');
+
+            const conf = p[lead] > 0.7 ? 'HIGH' : p[lead] > 0.4 ? 'MODERATE' : 'LOW';
+            const v = $('#verdict');
+            v.className = '';
+            if (S.accused) {
+                const ok = S.accused === c.solution;
+                v.className = ok ? 'ok' : 'bad';
+                v.innerHTML = ok ? `<b class="up">✓ CASE SOLVED</b><p>${c.explain}</p>`
+                    : `<b class="down">✗ ${name(S.accused)} is not supported by the evidence.</b><p class="muted">Review the drivers${S.revealed ? '' : ' and run AI reconstruction'}, then try again.</p>`;
+            } else {
+                v.innerHTML = any ? `<b>AI ASSESSMENT</b><p>Leading hypothesis: <b>${name(lead)}</b> (${pct(p[lead])}%) · confidence <b>${conf}</b></p>`
+                    : '<b>AI ASSESSMENT</b><p class="muted">All hypotheses equally likely. Examine evidence to update.</p>';
+            }
+
+            // Footer
+            $('#progress').textContent = `EVIDENCE ${S.examined.size}/${ev.length} · AI RECON: ${S.revealed ? 'COMPLETE' : 'STANDBY'}`;
+            $('#btn-ai').disabled = S.revealed;
+
+            // 3D panels
+            const set = (id, v, col) => { const e = $(id); if (e) { e.setAttribute('value', v); if (col) e.setAttribute('color', col); } };
+            set('#db-case', `${c.code} // ${c.title.toUpperCase()}`);
+            set('#db-id', se ? `NODE: ${se.id}` : 'NODE: SELECT EVIDENCE');
+            set('#db-title', se ? se.title.toUpperCase() : 'SUBJECT: --');
+            set('#db-desc', se ? se.desc : 'Point at any evidence marker to retrieve descriptions and AI projections.');
+            set('#db-ai', 'AI PROJECTION:\n' + (se ? se.insight : 'Awaiting selection...'));
+            set('#db-status', S.revealed ? 'AI PREDICTIVE MODE: ACTIVE' : 'AI PREDICTIVE MODE: STANDBY', S.revealed ? '#ff3344' : '#ffffff');
+            set('#board-lead', any ? `LEAD: ${name(lead).toUpperCase()} (${conf})` : 'LEAD: INSUFFICIENT EVIDENCE');
+            c.suspects.forEach(s => {
+                const w = Math.max(p[s.id] * 0.5, 0.001), bar = $(`#bar3d-${s.id}`);
+                if (bar) { bar.setAttribute('scale', `${w} 1 1`); bar.setAttribute('position', `${w / 2} ${bar.dataset.y} 0.001`); bar.setAttribute('color', any && s.id === lead ? '#ff3344' : '#00ffff'); }
+                set(`#pct3d-${s.id}`, `${pct(p[s.id])}%`);
+            });
+        }
+
+        let toastTimer;
+        function toast(msg) {
+            const t = $('#toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+        }
+
+        // =========================================================================
+        // A-FRAME COMPONENTS
+        // =========================================================================
         AFRAME.registerComponent('mr-passthrough-manager', {
-            init: function () {
-                var sceneEl = this.el;
-                
-                sceneEl.addEventListener('enter-vr', () => {
-                    if (sceneEl.is('ar-mode')) {
-                        console.log("[MR] Entered AR Passthrough mode. Adjusting visuals...");
-                        var env = document.querySelector('[environment]');
-                        if (env) env.setAttribute('visible', 'false');
-                        var sky = document.querySelector('a-sky');
-                        if (sky) sky.setAttribute('visible', 'false');
-                        sceneEl.renderer.setClearColor(0x000000, 0);
-                    }
+            init() {
+                const scene = this.el;
+                scene.addEventListener('enter-vr', () => {
+                    $('#hud').style.display = 'none';
+                    $('#vr-console').setAttribute('visible', true);
+                    document.querySelectorAll('.vr-btn').forEach(b => b.classList.add('clickable'));
+                    if (scene.is('ar-mode')) { $('#environment').setAttribute('visible', false); scene.renderer.setClearColor(0x000000, 0); }
                 });
-
-                sceneEl.addEventListener('exit-vr', () => {
-                    console.log("[MR] Exited AR/VR mode. Restoring digital landscape...");
-                    var env = document.querySelector('[environment]');
-                    if (env) env.setAttribute('visible', 'true');
-                    var sky = document.querySelector('a-sky');
-                    if (sky) sky.setAttribute('visible', 'true');
+                scene.addEventListener('exit-vr', () => {
+                    $('#hud').style.display = '';
+                    $('#vr-console').setAttribute('visible', false);
+                    document.querySelectorAll('.vr-btn').forEach(b => b.classList.remove('clickable'));
+                    $('#environment').setAttribute('visible', true);
                 });
             }
         });
 
-        // Evidence Marker Component
-        AFRAME.registerComponent('evidence-marker', {
-            schema: {
-                id: { type: 'string', default: 'E-01' },
-                title: { type: 'string', default: 'Evidence' },
-                description: { type: 'string', default: '...' },
-                aiInsight: { type: 'string', default: 'No predictive insight available.' }
-            },
-            init: function () {
-                var el = this.el;
-                var data = this.data;
-                
-                this.originalScale = el.getAttribute('scale') || { x: 1, y: 1, z: 1 };
-                this.hoverScale = {
-                    x: this.originalScale.x * 1.1,
-                    y: this.originalScale.y * 1.1,
-                    z: this.originalScale.z * 1.1
-                };
-                
-                el.addEventListener('click', (evt) => {
-                    Synth.playSelect();
-                    
-                    var markers = document.querySelectorAll('.evidence-marker-el');
-                    markers.forEach(m => {
-                        var child = m.querySelector('.highlight-ring');
-                        if(child) child.setAttribute('visible', 'false');
-                    });
-                    
-                    var myRing = el.querySelector('.highlight-ring');
-                    if(myRing) myRing.setAttribute('visible', 'true');
-                    
-                    this.el.sceneEl.emit('evidence-selected', {
-                        id: data.id,
-                        title: data.title,
-                        description: data.description,
-                        aiInsight: data.aiInsight
-                    });
+        AFRAME.registerComponent('vr-button', {
+            schema: { action: { type: 'string' } },
+            init() {
+                const e = this.el;
+                e.addEventListener('click', () => {
+                    if (this.data.action === 'ai') reconstruct();
+                    else { const i = CASES.indexOf(S.c); loadCase(CASES[(i + 1) % CASES.length].id); Synth.select(); }
                 });
-
-                el.addEventListener('mouseenter', () => {
-                    Synth.playHover();
-                    el.setAttribute('animation__hover', {
-                        property: 'scale',
-                        to: `${this.hoverScale.x} ${this.hoverScale.y} ${this.hoverScale.z}`,
-                        dur: 150,
-                        easing: 'easeOutQuad'
-                    });
-                });
-
-                el.addEventListener('mouseleave', () => {
-                    el.setAttribute('animation__hover', {
-                        property: 'scale',
-                        to: `${this.originalScale.x} ${this.originalScale.y} ${this.originalScale.z}`,
-                        dur: 150,
-                        easing: 'easeOutQuad'
-                    });
-                });
+                e.addEventListener('mouseenter', () => { Synth.hover(); e.setAttribute('material', 'opacity', 0.95); });
+                e.addEventListener('mouseleave', () => e.setAttribute('material', 'opacity', 0.7));
             }
         });
 
-        // Forensic Dashboard Controller
-        AFRAME.registerComponent('forensic-dashboard', {
-            init: function () {
-                var sceneEl = this.el.sceneEl;
-                
-                var dbId = document.getElementById('db-id');
-                var dbTitle = document.getElementById('db-title');
-                var dbDesc = document.getElementById('db-desc');
-                var dbAi = document.getElementById('db-ai');
-
-                sceneEl.addEventListener('evidence-selected', (evt) => {
-                    var data = evt.detail;
-                    dbId.setAttribute('value', 'NODE: ' + data.id);
-                    dbTitle.setAttribute('value', data.title.toUpperCase());
-                    dbDesc.setAttribute('value', data.description);
-                    dbAi.setAttribute('value', 'AI PROJECTION:\n' + data.aiInsight);
-                    
-                    // Visual flair
-                    dbAi.setAttribute('color', '#ff3344');
-                    setTimeout(() => { dbAi.setAttribute('color', '#00ffff'); }, 300);
-                });
-            }
-        });
-
-        // AI Reconstruction Trigger Component
-        AFRAME.registerComponent('ai-reconstruction-trigger', {
-            init: function () {
-                var el = this.el;
-                
-                el.addEventListener('click', () => {
-                    Synth.playFilter();
-                    
-                    // Trajectory Line
-                    var trajectory = document.getElementById('ai-trajectory');
-                    if (trajectory) {
-                        trajectory.setAttribute('visible', 'true');
-                        trajectory.emit('start-reconstruction');
-                    }
-                    
-                    // Fragment Reassembly
-                    var fragments = document.querySelectorAll('.fragment');
-                    fragments.forEach(frag => {
-                        frag.emit('reassemble');
-                    });
-
-                    // Update UI Status
-                    var statusEl = document.getElementById('db-status');
-                    if (statusEl) {
-                        statusEl.setAttribute('value', 'AI PREDICTIVE MODE: ACTIVE');
-                        statusEl.setAttribute('color', '#ff3344');
-                    }
-                    var statusBg = document.getElementById('db-status-bg');
-                    if(statusBg) {
-                        statusBg.setAttribute('color', '#4a0a10');
-                    }
-                });
-
-                el.addEventListener('mouseenter', () => {
-                    Synth.playHover();
-                    el.setAttribute('material', 'opacity', '0.95');
-                });
-
-                el.addEventListener('mouseleave', () => {
-                    el.setAttribute('material', 'opacity', '0.7');
-                });
-            }
-        });
-
+        // =========================================================================
+        // BOOT
+        // =========================================================================
         window.addEventListener('DOMContentLoaded', () => {
-            const clockEl = document.getElementById('clock');
-            const updateTime = () => {
-                const now = new Date();
-                clockEl.textContent = now.toTimeString().split(' ')[0];
+            $('#case-select').innerHTML = CASES.map(c => `<option value="${c.id}">${c.code} · ${c.title}</option>`).join('');
+            $('#case-select').addEventListener('change', e => loadCase(e.target.value));
+            $('#ev-list').addEventListener('click', e => { const b = e.target.closest('button'); if (b) examine(b.dataset.eid); });
+            $('#sus-list').addEventListener('click', e => { const b = e.target.closest('.accuse'); if (b) accuse(b.dataset.sid); });
+            $('#btn-ai').addEventListener('click', reconstruct);
+            $('#btn-reset').addEventListener('click', () => loadCase(S.c.id));
+            $('#btn-about').addEventListener('click', () => $('#about').classList.add('open'));
+            $('#about-close').addEventListener('click', () => {
+                $('#about').classList.remove('open');
+                try { localStorage.setItem('ss-intro-seen', '1'); } catch (e) { }
+            });
+            ['case', 'sus'].forEach(k => $(`#tg-${k}`).addEventListener('click', () => {
+                const me = $(`#${k === 'case' ? 'case' : 'suspect'}-panel`), other = $(`#${k === 'case' ? 'suspect' : 'case'}-panel`);
+                other.classList.remove('open');
+                me.classList.toggle('open');
+            }));
+            try { if (!localStorage.getItem('ss-intro-seen')) $('#about').classList.add('open'); } catch (e) { $('#about').classList.add('open'); }
+
+            const tick = () => $('#clock').textContent = new Date().toTimeString().split(' ')[0];
+            setInterval(tick, 1000); tick();
+
+            const scene = $('a-scene');
+            const start = () => {
+                // Desktop: tilt view down toward the floor-level scene (headset pose overrides in XR)
+                const lc = $('#camera').components['look-controls'];
+                if (lc) lc.pitchObject.rotation.x = -0.5;
+                loadCase(CASES[0].id);
             };
-            setInterval(updateTime, 1000);
-            updateTime();
+            scene.hasLoaded ? start() : scene.addEventListener('loaded', start);
         });
     </script>
 </head>
 
 <body>
-    <!-- 2D Screen Space HUD -->
-    <div id="desktop-hud">
-        <div class="hud-header">
+    <!-- ================= 2D HUD (desktop / mobile) ================= -->
+    <div id="hud">
+        <header class="box">
             <div class="brand">
                 <span class="pulsar"></span>
-                <h1>SHADY SHERLOCK</h1>
-                <span class="subtitle">// FORENSIC AI CRIME SCENE RECONSTRUCTION</span>
+                <h1 class="orb">SHADY SHERLOCK</h1>
+                <span class="subtitle orb">// XR FORENSIC AI · SUSPECT PROBABILITY ENGINE</span>
             </div>
-            <div class="system-time" id="clock">00:00:00</div>
-        </div>
-        <div class="hud-footer">
-            <div class="info-tag">HARDWARE TARGET: META QUEST 3S [PASSTHROUGH READY]</div>
-            <div class="instructions">Point and trigger to interact with evidence. Click 'ACTIVATE AI' for scene reconstruction.</div>
+            <select id="case-select" aria-label="Select case"></select>
+            <button class="btn mobile-only" id="tg-case">Case</button>
+            <button class="btn mobile-only" id="tg-sus">Suspects</button>
+            <button class="btn" id="btn-about">About</button>
+            <div id="clock" class="orb">00:00:00</div>
+        </header>
+
+        <aside id="case-panel" class="box panel">
+            <div id="case-head"></div>
+            <h2>EVIDENCE UNDER REVIEW</h2>
+            <div id="detail"></div>
+            <h2>EVIDENCE LOG</h2>
+            <ul id="ev-list" class="ev-list"></ul>
+        </aside>
+
+        <aside id="suspect-panel" class="box panel">
+            <h2>SUSPECT PROBABILITY</h2>
+            <div id="sus-list"></div>
+            <div id="verdict"></div>
+            <p class="fine">Training simulation. Probabilities are Bayesian estimates from evidence weights, not proof of guilt.</p>
+        </aside>
+
+        <footer class="box">
+            <span id="progress" class="orb"></span>
+            <button class="btn primary orb" id="btn-ai">⚡ RUN AI RECONSTRUCTION</button>
+            <button class="btn" id="btn-reset">Reset case</button>
+            <span class="hint">Click markers in the scene · drag to look · WASD to move · VR/AR headset supported (Meta Quest 3S passthrough)</span>
+        </footer>
+    </div>
+
+    <div id="toast" class="box"></div>
+
+    <div id="about">
+        <div class="box">
+            <h2 class="orb" style="color:#fff;margin:0">SHADY SHERLOCK</h2>
+            <p class="muted orb" style="font-size:11px">XR FORENSIC TRAINING &amp; PREDICTIVE RECONSTRUCTION</p>
+            <p>ShadySherlock combines Extended Reality (VR, AR and MR) with predictive AI to turn forensic training and crime-scene analysis into an interactive, data-driven experience. Students step into risk-free virtual crime scenes and practise investigative technique without contaminating real evidence.</p>
+            <p>When evidence is damaged, fragmented or missing, predictive models use spatial context, trajectories and structural patterns to reconstruct it and project how events unfolded.</p>
+            <h3>HOW TO INVESTIGATE</h3>
+            <p>1. Pick a case and survey the scene.<br>2. Examine evidence markers. Each finding updates every suspect's probability.<br>3. Run AI reconstruction to reassemble fragments, project trajectories and recover hidden findings.<br>4. When confident, accuse a suspect.</p>
+            <h3>HOW PROBABILITIES WORK</h3>
+            <p>Every hypothesis starts equal. Each piece of evidence carries a likelihood ratio per suspect: how much more (×&gt;1) or less (×&lt;1) likely that finding is if they did it. Examining evidence multiplies these ratios and renormalises (Bayes' rule), so you can see exactly which evidence drives the result.</p>
+            <p style="margin-top:16px"><button class="btn primary orb" id="about-close">START INVESTIGATING</button></p>
         </div>
     </div>
 
-    <!-- 3D Spatial Scene -->
+    <!-- ================= 3D / XR SCENE ================= -->
     <a-scene webxr="optionalFeatures: hit-test, dom-overlay; referenceSpaceType: local-floor"
-             renderer="alpha: true; colorManagement: true;"
-             mr-passthrough-manager>
+             renderer="alpha: true; colorManagement: true;" mr-passthrough-manager>
 
-        <!-- Digital Space Environment backdrop -->
-        <a-entity id="environment" 
-                  environment="preset: arches; playArea: 1.5; ground: flat; groundYScale: 5; skyType: atmosphere; lighting: point; lightPosition: 0 4 -2">
-        </a-entity>
+        <a-entity id="environment" environment="preset: tron; playArea: 1.5; ground: flat; groundYScale: 5; lighting: point; lightPosition: 0 4 -2"></a-entity>
+        <a-entity light="type: ambient; color: #2a4e75; intensity: 0.8"></a-entity>
+        <a-entity light="type: directional; color: #00ffff; intensity: 0.6" position="2 4 1"></a-entity>
 
-        <a-entity light="type: ambient; color: #081e35; intensity: 0.8"></a-entity>
-        <a-entity light="type: directional; color: #00ffff; intensity: 0.6; castShadow: false" position="2 4 1"></a-entity>
-
-        <!-- Camera Rig & Controllers -->
-        <a-entity id="rig" position="0 0 0">
+        <a-entity id="rig">
             <a-entity id="camera" camera look-controls wasd-controls position="0 1.6 0">
-                <a-entity cursor="fuse: false; rayOrigin: mouse;"
-                          raycaster="objects: .clickable; interval: 100">
-                </a-entity>
+                <a-entity cursor="fuse: false; rayOrigin: mouse" raycaster="objects: .clickable; interval: 100"></a-entity>
             </a-entity>
-            
-            <a-entity id="leftHand" laser-controls="hand: left" 
-                      raycaster="objects: .clickable; lineColor: #00ffff; lineOpacity: 0.8; far: 10">
-            </a-entity>
-            <a-entity id="rightHand" laser-controls="hand: right" 
-                      raycaster="objects: .clickable; lineColor: #00ffff; lineOpacity: 0.8; far: 10">
-            </a-entity>
+            <a-entity laser-controls="hand: left" raycaster="objects: .clickable; lineColor: #00ffff; lineOpacity: 0.8; far: 10"></a-entity>
+            <a-entity laser-controls="hand: right" raycaster="objects: .clickable; lineColor: #00ffff; lineOpacity: 0.8; far: 10"></a-entity>
         </a-entity>
 
-        <!-- =========================================================================
-             IMMERSIVE CRIME SCENE (FLOOR LEVEL)
-             ========================================================================= -->
-        <a-entity id="crime-scene" position="0 0 -1.5">
-            
-            <!-- Center Marking (Chalk outline grid) -->
-            <a-plane position="0 0.01 0" rotation="-90 0 0" width="3" height="3" color="#00ffff" opacity="0.1" material="transparent: true; shader: flat;"></a-plane>
-            <a-ring position="0 0.02 0" rotation="-90 0 0" radius-inner="1.45" radius-outer="1.5" color="#00ffff" opacity="0.3"></a-ring>
-
-            <!-- 1. The Victim (Stylized Holographic Wireframe) -->
-            <a-entity id="victim" class="clickable evidence-marker-el" 
-                      evidence-marker="id: V-01; title: Unidentified Male; description: Victim found supine. Fatal kinetic trauma to the chest cavity. No rigor mortis detected, suggesting recent time of death.; aiInsight: AI trajectory simulation reconstructs the projectile path from the origin point. The victim was struck in the torso."
-                      position="0 0 0">
-                <!-- Highlight Ring (Hidden by default) -->
-                <a-ring class="highlight-ring" position="0 0.03 0.2" rotation="-90 0 0" radius-inner="0.6" radius-outer="0.65" color="#ff3344" opacity="0.8" visible="false"></a-ring>
-                
-                <!-- Body Parts -->
-                <a-sphere position="0 0.1 0.8" radius="0.15" color="#00ffff" opacity="0.3" wireframe="true"></a-sphere> <!-- Head -->
-                <a-box position="0 0.1 0.3" width="0.4" height="0.15" depth="0.7" color="#00ffff" opacity="0.3" wireframe="true"></a-box> <!-- Torso -->
-                
-                <a-cylinder position="-0.3 0.1 0.3" rotation="0 0 90" radius="0.05" height="0.5" color="#00ffff" opacity="0.3" wireframe="true"></a-cylinder> <!-- Left Arm -->
-                <a-cylinder position="0.35 0.1 0.1" rotation="0 45 90" radius="0.05" height="0.5" color="#00ffff" opacity="0.3" wireframe="true"></a-cylinder> <!-- Right Arm -->
-                
-                <a-cylinder position="-0.15 0.1 -0.4" rotation="90 0 0" radius="0.06" height="0.8" color="#00ffff" opacity="0.3" wireframe="true"></a-cylinder> <!-- Left Leg -->
-                <a-cylinder position="0.15 0.1 -0.4" rotation="90 15 0" radius="0.06" height="0.8" color="#00ffff" opacity="0.3" wireframe="true"></a-cylinder> <!-- Right Leg -->
-                
-                <!-- Transparent interaction bounding box -->
-                <a-box position="0 0.15 0.2" width="0.9" height="0.3" depth="1.8" material="transparent: true; opacity: 0"></a-box>
-            </a-entity>
-
-            <!-- 2. Evidence: Discarded Weapon -->
-            <a-entity class="clickable evidence-marker-el" position="0.6 0 0.3"
-                      evidence-marker="id: E-01; title: Discarded Weapon; description: Sub-compact energy projector. Serial number filed off. Residual thermal signature detected on the barrel.; aiInsight: Grip analysis aligns with victim's right hand. Possible struggle or self-inflicted incident.">
-                <a-ring class="highlight-ring" position="0 0.03 0" rotation="-90 0 0" radius-inner="0.15" radius-outer="0.18" color="#ff3344" opacity="0.8" visible="false"></a-ring>
-                
-                <a-cone radius-bottom="0.05" radius-top="0.01" height="0.15" position="0 0.075 -0.1" color="#ffcc00"></a-cone>
-                <a-text value="1" position="0 0.2 -0.1" align="center" color="#ffcc00" scale="0.5 0.5 0.5"></a-text>
-                <!-- Stylized Weapon -->
-                <a-box position="0 0.02 0" width="0.1" height="0.04" depth="0.15" color="#444444" metalness="0.8"></a-box>
-                
-                <a-box position="0 0.1 0" width="0.3" height="0.3" depth="0.3" material="transparent: true; opacity: 0"></a-box>
-            </a-entity>
-
-            <!-- 3. Evidence: Impact Origin / Bullet Casing -->
-            <a-entity class="clickable evidence-marker-el" position="-1.2 0 1.5"
-                      evidence-marker="id: E-02; title: Impact Origin Point; description: Scorched flooring consistent with high-velocity discharge. Trace chemical accelerants found.; aiInsight: Origin point of kinetic trauma. Triggering AI Reconstruction will map the trajectory to the victim.">
-                <a-ring class="highlight-ring" position="0 0.03 0" rotation="-90 0 0" radius-inner="0.15" radius-outer="0.18" color="#ff3344" opacity="0.8" visible="false"></a-ring>
-
-                <a-cone radius-bottom="0.05" radius-top="0.01" height="0.15" position="0 0.075 -0.1" color="#ffcc00"></a-cone>
-                <a-text value="2" position="0 0.2 -0.1" align="center" color="#ffcc00" scale="0.5 0.5 0.5"></a-text>
-                <!-- Stylized burn mark -->
-                <a-circle position="0 0.01 0" rotation="-90 0 0" radius="0.08" color="#ff3344" opacity="0.5"></a-circle>
-                
-                <a-box position="0 0.1 0" width="0.3" height="0.3" depth="0.3" material="transparent: true; opacity: 0"></a-box>
-            </a-entity>
-
-            <!-- 4. Evidence: Fragmented Object -->
-            <a-entity class="clickable evidence-marker-el" position="-0.8 0 -0.5"
-                      evidence-marker="id: E-03; title: Fragmented Storage Device; description: Heavily damaged personal datapad. Casing shattered by blunt force trauma.; aiInsight: Predictive structural analysis can reassemble casing fragments to extract the core. Trigger AI Reconstruction.">
-                <a-ring class="highlight-ring" position="0 0.03 0" rotation="-90 0 0" radius-inner="0.2" radius-outer="0.23" color="#ff3344" opacity="0.8" visible="false"></a-ring>
-
-                <a-cone radius-bottom="0.05" radius-top="0.01" height="0.15" position="0 0.075 -0.2" color="#ffcc00"></a-cone>
-                <a-text value="3" position="0 0.2 -0.2" align="center" color="#ffcc00" scale="0.5 0.5 0.5"></a-text>
-                
-                <!-- Fragments to be reassembled -->
-                <a-entity id="fragment-group">
-                    <a-box class="fragment" position="-0.15 0.02 0.05" scale="0.06 0.02 0.06" color="#aa33ff" 
-                           animation__reassemble="property: position; to: 0 0.05 0; startEvents: reassemble; dur: 2000; easing: easeInOutElastic"></a-box>
-                    <a-box class="fragment" position="0.1 0.02 0.1" scale="0.06 0.02 0.06" color="#aa33ff" 
-                           animation__reassemble="property: position; to: 0 0.07 0; startEvents: reassemble; dur: 2000; easing: easeInOutElastic"></a-box>
-                    <a-box class="fragment" position="0 0.02 -0.15" scale="0.06 0.02 0.06" color="#aa33ff" 
-                           animation__reassemble="property: position; to: 0 0.09 0; startEvents: reassemble; dur: 2000; easing: easeInOutElastic"></a-box>
-                </a-entity>
-
-                <a-box position="0 0.1 0" width="0.4" height="0.3" depth="0.4" material="transparent: true; opacity: 0"></a-box>
-            </a-entity>
-
-            <!-- AI Trajectory Line (Hidden by default, shown on AI Reconstruction trigger) -->
-            <!-- From E-02 (-1.2, 0.1, 1.5) to Victim Torso (0, 0.2, 0.3) -->
-            <a-entity id="ai-trajectory" visible="false">
-                <a-line from="-1.2 0.1 1.5" to="0 0.2 0.3" color="#ff3344" 
-                        animation__draw="property: opacity; from: 0; to: 0.8; startEvents: start-reconstruction; dur: 1500"></a-line>
-                <!-- Trajectory projectile (Bullet simulation) -->
-                <a-sphere position="-1.2 0.1 1.5" radius="0.04" color="#ffff00" material="emissive: #ffff00; emissiveIntensity: 1"
-                          animation__move="property: position; to: 0 0.2 0.3; startEvents: start-reconstruction; dur: 1200; easing: easeInQuad; loop: true"></a-sphere>
-                <!-- Impact flash at the victim -->
-                <a-sphere position="0 0.2 0.3" radius="0.01" color="#ff0000" material="emissive: #ff0000; emissiveIntensity: 2; transparent: true"
-                          animation__flash="property: scale; from: 1 1 1; to: 15 15 15; startEvents: start-reconstruction; delay: 1200; dur: 200; easing: easeOutQuad; loop: true"
-                          animation__fade="property: material.opacity; from: 1; to: 0; startEvents: start-reconstruction; delay: 1200; dur: 200; easing: easeOutQuad; loop: true"></a-sphere>
-            </a-entity>
-
+        <!-- Crime scene floor (contents built per case) -->
+        <a-entity position="0 0 -1.5">
+            <a-plane position="0 0.005 0" rotation="-90 0 0" width="3" height="3" color="#00ffff" material="transparent: true; opacity: 0.08; shader: flat"></a-plane>
+            <a-ring position="0 0.01 0" rotation="-90 0 0" radius-inner="1.45" radius-outer="1.5" color="#00ffff" opacity="0.3"></a-ring>
+            <a-entity id="case-root"></a-entity>
         </a-entity>
 
-        <!-- =========================================================================
-             SPATIAL UI - FORENSIC DASHBOARD & AI CONTROLS
-             ========================================================================= -->
-
-        <!-- Forensic Details Dashboard (Floating slightly higher, angled to the user) -->
-        <a-entity id="dashboard" position="1.4 1.5 -1.2" rotation="0 -35 0" forensic-dashboard>
-            <a-plane width="1.8" height="1.6" color="#020e1a" 
-                     material="transparent: true; opacity: 0.9; roughness: 0.2; metalness: 0.85;" 
-                     geometry="skipCache: true">
-                
-                <a-ring radius-inner="0.89" radius-outer="0.9" scale="2.01 1.78 1" color="#00ffff" opacity="0.45" position="0 0 0.001" material="shader: flat;"></a-ring>
-                
-                <a-plane width="1.8" height="0.12" color="#00ffff" opacity="0.15" position="0 0.74 0.002" material="shader: flat;"></a-plane>
-                <a-text value="FORENSIC ANALYSIS & AI INSIGHTS" position="-0.85 0.74 0.003" width="2.4" font="mozillavr" color="#00ffff" bold="true"></a-text>
-                
-                <a-entity id="data-screen" position="-0.82 0.6 0.005">
-                    <a-text id="db-id" value="NODE: SELECT EVIDENCE" position="0 -0.05 0" width="2.5" font="mozillavr" color="#ffffff" bold="true"></a-text>
-                    
-                    <a-text id="db-title" value="SUBJECT: --" position="0 -0.15 0" width="2.0" font="mozillavr" color="#00ffff"></a-text>
-                    
-                    <a-text value="PHYSICAL DESCRIPTION:" position="0 -0.32 0" width="1.8" font="mozillavr" color="#bbbbbb" bold="true"></a-text>
-                    <a-text id="db-desc" value="Point and select any holographic evidence marker or victim node to retrieve spatial coordinates, descriptions, and AI projections." 
-                            position="0 -0.52 0" width="1.8" font="mozillavr" color="#e0e0e0" line-height="40"></a-text>
-
-                    <!-- AI Insights Section -->
-                    <a-text id="db-ai" value="AI PROJECTION:\nAwaiting selection..." 
-                            position="0 -0.92 0" width="1.8" font="mozillavr" color="#00ffff" line-height="40" bold="true"></a-text>
+        <!-- Right: forensic dashboard -->
+        <a-entity position="1.4 1.5 -1.2" rotation="0 -35 0">
+            <a-plane width="1.8" height="1.6" color="#020e1a" material="transparent: true; opacity: 0.9">
+                <a-plane width="1.8" height="0.12" color="#00ffff" opacity="0.15" position="0 0.74 0.002" material="shader: flat"></a-plane>
+                <a-text id="db-case" value="" position="-0.85 0.74 0.003" width="1.8" font="mozillavr" color="#00ffff"></a-text>
+                <a-entity position="-0.82 0.6 0.005">
+                    <a-text id="db-id" value="" position="0 -0.05 0" width="2.5" font="mozillavr" color="#ffffff"></a-text>
+                    <a-text id="db-title" value="" position="0 -0.15 0" width="2.0" font="mozillavr" color="#ffcc00"></a-text>
+                    <a-text id="db-desc" value="" position="0 -0.45 0" width="1.8" font="mozillavr" color="#e0e0e0"></a-text>
+                    <a-text id="db-ai" value="" position="0 -0.85 0" width="1.8" font="mozillavr" color="#00ffff"></a-text>
                 </a-entity>
-                
-                <!-- Status Badge -->
-                <a-plane id="db-status-bg" width="0.7" height="0.08" color="#0c355a" position="0.5 -0.65 0.001" material="shader: flat;">
-                    <a-text id="db-status" value="AI PREDICTIVE MODE: STANDBY" position="0 0 0.001" align="center" width="1.6" font="mozillavr" color="#ffffff" bold="true"></a-text>
+                <a-plane width="0.8" height="0.08" color="#0c355a" position="0.45 -0.68 0.001" material="shader: flat">
+                    <a-text id="db-status" value="" position="0 0 0.001" align="center" width="1.5" font="mozillavr" color="#ffffff"></a-text>
                 </a-plane>
             </a-plane>
         </a-entity>
 
-        <!-- AI Reconstruction Trigger Button (Floating central console) -->
-        <a-entity id="ai-trigger" position="0 1.0 -0.8" rotation="-20 0 0">
-            <a-plane class="clickable" ai-reconstruction-trigger width="0.8" height="0.15" color="#0c355a" material="opacity: 0.7; roughness: 0.5;">
-                <a-ring radius-inner="0.38" radius-outer="0.39" scale="2.02 0.35 1" color="#ff3344" opacity="0.6" position="0 0 0.001" material="shader: flat;"></a-ring>
-                <a-text value="ACTIVATE AI RECONSTRUCTION" position="0 0 0.002" width="1.5" align="center" font="mozillavr" color="#ff3344" bold="true"></a-text>
+        <!-- Left: suspect probability board -->
+        <a-entity position="-1.4 1.5 -1.2" rotation="0 35 0">
+            <a-plane width="1.3" height="0.9" color="#020e1a" material="transparent: true; opacity: 0.9">
+                <a-plane width="1.3" height="0.12" color="#00ffff" opacity="0.15" position="0 0.39 0.002" material="shader: flat"></a-plane>
+                <a-text value="SUSPECT PROBABILITY" position="-0.6 0.39 0.003" width="2.0" font="mozillavr" color="#00ffff"></a-text>
+                <a-entity id="board-rows" position="0 0.2 0.003"></a-entity>
+                <a-text id="board-lead" value="" position="-0.6 -0.35 0.003" width="1.6" font="mozillavr" color="#ff3344"></a-text>
             </a-plane>
         </a-entity>
 
-        <!-- Instructions Panel (Left) -->
-        <a-entity id="instructions-panel" position="-1.4 1.5 -1.2" rotation="0 35 0">
-            <a-plane width="1.2" height="0.8" color="#020e1a" material="transparent: true; opacity: 0.9;">
-                <a-ring radius-inner="0.59" radius-outer="0.6" scale="2.01 1.32 1" color="#00ffff" opacity="0.4" position="0 0 0.001"></a-ring>
-                
-                <a-plane width="1.2" height="0.12" color="#00ffff" opacity="0.15" position="0 0.34 0.002"></a-plane>
-                <a-text value="SYSTEM OPERATIONS" position="-0.55 0.34 0.003" width="2.0" font="mozillavr" color="#00ffff" bold="true"></a-text>
-                
-                <a-text value="1. SURVEY THE SCENE\nNavigate the room-scale environment to locate the victim and evidence markers.\n\n2. ANALYZE EVIDENCE\nPoint your controller laser (or use mouse) to select evidence markers (yellow cones) or the victim to load data into the Forensic Dashboard.\n\n3. PREDICTIVE AI\nClick the central 'ACTIVATE AI' button to reconstruct fragmented evidence and visualize weapon trajectories based on spatial data." 
-                        position="-0.55 -0.05 0.002" width="1.8" font="mozillavr" color="#ffffff" line-height="40"></a-text>
+        <!-- Centre console: VR buttons (2D HUD replaces it on desktop) -->
+        <a-entity id="vr-console" position="0 1.0 -0.8" rotation="-20 0 0" visible="false">
+            <a-plane class="vr-btn" vr-button="action: ai" width="0.8" height="0.13" color="#3a0a12" material="opacity: 0.7">
+                <a-text value="ACTIVATE AI RECONSTRUCTION" position="0 0 0.002" width="1.5" align="center" font="mozillavr" color="#ff3344"></a-text>
+            </a-plane>
+            <a-plane class="vr-btn" vr-button="action: next" position="0 -0.17 0" width="0.5" height="0.1" color="#0c355a" material="opacity: 0.7">
+                <a-text value="NEXT CASE >>" position="0 0 0.002" width="1.2" align="center" font="mozillavr" color="#00ffff"></a-text>
             </a-plane>
         </a-entity>
-
     </a-scene>
 </body>
 
