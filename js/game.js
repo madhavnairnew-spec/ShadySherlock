@@ -139,7 +139,7 @@ const Game = (() => {
         updateHUD(); syncInput();
         VR.hooks.caseLoaded();
         const ok = await motionReq;
-        if (Controls.isTouch) { if (ok) Controls.setMotion(true); setMotionUI(ok); }
+        if (Controls.isTouch) { Controls.setMotion(!!ok); setMotionUI(!!ok); }
         toast(`Scene secured. ${c.evidence.length} evidence markers to examine. Press H for the nearest lead if you get stuck.`);
     }
     const TIPS = ['Overlapping items? Aim at the smaller one: it wins.', 'Evidence highlighted in green has already been examined.', 'The damaged item unlocks AI reconstruction and two hidden findings.', 'A wrong charge costs 250 points. Wait for high confidence.', 'Press H (or the Lead button) to point at the nearest unexamined item.', 'Settings let you change graphics quality, music and look sensitivity.'];
@@ -512,7 +512,11 @@ const Game = (() => {
         if (vrOn()) S.focus = S.vrFocus;
         else if (now - lastPick > 110 && Controls.state.enabled) {
             lastPick = now;
-            S.focus = (!document.pointerLockElement && S.hover) || pickScreen(null, null);
+            // Re-pick under the cursor each time: the view may have moved since the last mouse move
+            const cur = Controls.state.cursor;
+            S.hover = cur && !document.pointerLockElement ? pickScreen(cur.x, cur.y) : null;
+            if (!Controls.isTouch) sceneEl.canvas.style.cursor = S.hover ? 'pointer' : 'grab';
+            S.focus = S.hover || pickScreen(null, null);
             renderPrompt(cp);
         }
         if (S.recon) { S.recon.u = (S.recon.u + dt * S.recon.speed) % 1; S.recon.dot.position.copy(S.recon.curve.getPointAt(S.recon.u)); }

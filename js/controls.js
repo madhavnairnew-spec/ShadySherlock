@@ -8,13 +8,14 @@ const Controls = (() => {
     const T = THREE;
     const keys = {}, joy = { x: 0, y: 0 }, stick = { x: 0, y: 0 };
     const isTouch = Perf.isTouch;
-    const state = { enabled: false, world: null, motion: false, onTap: null, onHover: null, onStep: null };
-    let sceneEl, camEl, rigEl, canvas, snapArmed = true, lockRequested = 0;
+    const state = { enabled: false, world: null, motion: false, cursor: null, onTap: null, onHover: null, onStep: null };
+    let sceneEl, camEl, rigEl, canvas, snapArmed = true, lockRequested = 0, ptr = null, resetJoy = () => { };
+    const good = { x: 0, z: 0, ok: false }, vrHead = { x: 0, z: 0, yaw: 0, ok: false };
     const vel = new T.Vector2(), q = new T.Quaternion(), eul = new T.Euler(0, 0, 0, 'YXZ'), head = new T.Vector3(), head2 = new T.Vector3();
-    const clearKeys = () => Object.keys(keys).forEach(k => keys[k] = false);
+    const clearKeys = () => { Object.keys(keys).forEach(k => keys[k] = false); ptr = null; resetJoy(); };
 
-    window.addEventListener('keydown', e => { if (!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) keys[e.code] = true; });
-    window.addEventListener('keyup', e => { keys[e.code] = false; });
+    window.addEventListener('keydown', e => { if (!e.metaKey && !e.ctrlKey && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) keys[e.code] = true; });
+    window.addEventListener('keyup', e => { if (e.key === 'Meta') clearKeys(); else keys[e.code] = false; });
     window.addEventListener('blur', clearKeys);
     document.addEventListener('visibilitychange', clearKeys);
 
@@ -24,7 +25,9 @@ const Controls = (() => {
     function look(dyaw, dpitch) {
         const l = lc(); if (!l) return;
         l.yawObject.rotation.y += dyaw;
-        l.pitchObject.rotation.x = Math.max(-1.45, Math.min(1.45, l.pitchObject.rotation.x + dpitch));
+        // Clamp the total pitch (device tilt + drag) so the view never flips past vertical
+        const dev = state.motion && l.magicWindowDeltaEuler ? l.magicWindowDeltaEuler.x : 0;
+        l.pitchObject.rotation.x = Math.max(-1.45 - dev, Math.min(1.45 - dev, l.pitchObject.rotation.x + dpitch));
     }
     const sens = () => Perf.settings.sens, inv = () => (Perf.settings.invertY ? -1 : 1);
     const locked = () => document.pointerLockElement === canvas;
@@ -33,15 +36,23 @@ const Controls = (() => {
     function init(scene) {
         sceneEl = scene; camEl = scene.querySelector('#camera'); rigEl = scene.querySelector('#rig'); canvas = scene.canvas;
         // One active look pointer (mouse drag or a finger); taps are short, still presses
-        let ptr = null;
         canvas.addEventListener('pointerdown', e => {
             if (ptr || (e.pointerType === 'mouse' && e.button !== 0)) return;
-            if (e.pointerType === 'mouse' && Perf.settings.mouseLock && state.enabled && !locked()) { lockRequested = performance.now(); canvas.requestPointerLock && canvas.requestPointerLock(); }
+            if (e.pointerType === 'mouse' && Perf.settings.mouseLock && state.enabled && !locked() && canvas.requestPointerLock) {
+                lockRequested = performance.now();
+                try { const pr = canvas.requestPointerLock(); if (pr && pr.catch) pr.catch(() => { lockRequested = 0; }); } catch (err) { lockRequested = 0; }
+            }
             ptr = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now(), mouse: e.pointerType === 'mouse' };
         });
         window.addEventListener('pointermove', e => {
             if (locked()) return;
-            if (!ptr || e.pointerId !== ptr.id) { if (e.pointerType === 'mouse' && e.target === canvas && state.onHover) state.onHover(e.clientX, e.clientY); return; }
+            if (ptr && ptr.mouse && e.pointerType === 'mouse' && e.buttons === 0) ptr = null;
+            if (!ptr || e.pointerId !== ptr.id) {
+                if (e.pointerType === 'mouse') state.cursor = e.target === canvas ? { x: e.clientX, y: e.clientY } : null;
+                if (e.pointerType === 'mouse' && e.target === canvas && state.onHover) state.onHover(e.clientX, e.clientY);
+                return;
+            }
+            if (ptr.mouse) state.cursor = null;
             const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y; ptr.x = e.clientX; ptr.y = e.clientY;
             if (!state.enabled) return;
             const k = (ptr.mouse ? 0.0026 : 0.0045) * sens();
@@ -57,7 +68,9 @@ const Controls = (() => {
         };
         window.addEventListener('pointerup', end);
         window.addEventListener('pointercancel', e => { if (ptr && e.pointerId === ptr.id) ptr = null; });
-        canvas.addEventListener('mouseleave', () => state.onHover && state.onHover(null));
+        canvas.addEventListener('mouseleave', () => { state.cursor = null; state.onHover && state.onHover(null); });
+        document.addEventListener('pointerlockchange', () => { state.cursor = null; state.onHover && state.onHover(null); });
+        document.addEventListener('pointerlockerror', () => { lockRequested = 0; });
 
         // VR: left stick moves, right stick snap-turns
         const hl = scene.querySelector('#hand-l'), hr = scene.querySelector('#hand-r');
@@ -67,7 +80,14 @@ const Controls = (() => {
             if (Math.abs(x) < 0.3) snapArmed = true;
             else if (snapArmed && Math.abs(x) > 0.7) { snapArmed = false; snapTurn(-Math.sign(x) * Perf.settings.snapTurn); }
         });
-        scene.addEventListener('exit-vr', () => { stick.x = stick.y = 0; });
+        scene.addEventListener('exit-vr', () => {
+            stick.x = stick.y = 0;
+            // Put the flat-screen camera where the headset was, facing the same way
+            if (vrHead.ok && state.world) setTimeout(() => {
+                const w = state.world, bad = !w.walk(vrHead.x, vrHead.z) && good.ok;
+                teleport(bad ? good.x : vrHead.x, bad ? good.z : vrHead.z, vrHead.yaw * 180 / Math.PI); vrHead.ok = false;
+            }, 0);
+        });
 
         // Virtual joystick
         const base = document.getElementById('joystick'), knob = base.querySelector('.knob');
@@ -82,7 +102,8 @@ const Controls = (() => {
         };
         base.addEventListener('pointerdown', e => { jid = e.pointerId; base.setPointerCapture(jid); base.classList.add('active'); setJoy(e); e.preventDefault(); });
         base.addEventListener('pointermove', e => { if (e.pointerId === jid) setJoy(e); });
-        const release = e => { if (e.pointerId !== jid) return; jid = null; joy.x = joy.y = 0; knob.style.transform = ''; base.classList.remove('active', 'run'); };
+        resetJoy = () => { jid = null; joy.x = joy.y = 0; knob.style.transform = ''; base.classList.remove('active', 'run'); };
+        const release = e => { if (e.pointerId === jid) resetJoy(); };
         base.addEventListener('pointerup', release); base.addEventListener('pointercancel', release);
     }
 
@@ -112,7 +133,7 @@ const Controls = (() => {
 
     function teleport(x, z, yawDeg) {
         const o = rigEl.object3D, w = state.world;
-        vel.set(0, 0);
+        vel.set(0, 0); good.ok = false;
         if (inVR()) {
             cam().getWorldQuaternion(q); eul.setFromQuaternion(q, 'YXZ');
             o.rotation.y += yawDeg * Math.PI / 180 - eul.y; o.updateMatrixWorld(true);
@@ -120,7 +141,7 @@ const Controls = (() => {
             o.position.x += x - head.x; o.position.z += z - head.z;
         } else {
             o.rotation.set(0, 0, 0); o.position.x = x; o.position.z = z;
-            const l = lc(); if (l) { l.yawObject.rotation.y = yawDeg * Math.PI / 180; l.pitchObject.rotation.x = -0.12; }
+            const l = lc(); if (l) { l.yawObject.rotation.y = yawDeg * Math.PI / 180; l.pitchObject.rotation.x = -0.12; if (l.magicWindowDeltaEuler) l.magicWindowDeltaEuler.y = 0; }
         }
         o.position.y = w ? w.groundAt(x, z) : 0;
     }
@@ -150,16 +171,21 @@ const Controls = (() => {
             if (len < 0.05 && vel.lengthSq() < 0.0004) vel.set(0, 0);
             const pos = this.el.object3D.position;
             cam().getWorldPosition(head);
+            if (inVR()) { vrHead.x = head.x; vrHead.z = head.z; vrHead.yaw = eul.y; vrHead.ok = true; }
+            if (w.walk(head.x, head.z)) { good.x = head.x; good.z = head.z; good.ok = true; }
             if (vel.x || vel.y) {
-                let mx = vel.x * dt, mz = vel.y * dt;
+                let mx = vel.x * dt, mz = vel.y * dt, moved = 0;
                 const n = Math.max(1, Math.ceil(Math.hypot(mx, mz) / 0.08)); mx /= n; mz /= n;
                 const ox = head.x - pos.x, oz = head.z - pos.z;
+                // When the head is somewhere blocked (leaned through a wall), only allow moves back toward the last good spot
+                const ok = (x, z, px, pz) => w.walk(x, z) || (good.ok && Math.hypot(x - good.x, z - good.z) < Math.hypot(px - good.x, pz - good.z) - 1e-4) || (!good.ok && !w.walk(px, pz));
                 for (let i = 0; i < n; i++) {
-                    const hx = pos.x + ox, hz = pos.z + oz, stuck = !w.walk(hx, hz);
-                    if (stuck || w.walk(hx + mx, hz)) pos.x += mx; else vel.x *= 0.5;
-                    if (stuck || w.walk(pos.x + ox, hz + mz)) pos.z += mz; else vel.y *= 0.5;
+                    const hx = pos.x + ox, hz = pos.z + oz;
+                    if (ok(hx + mx, hz, hx, hz)) { pos.x += mx; moved += Math.abs(mx); } else vel.x *= 0.5;
+                    const hx2 = pos.x + ox;
+                    if (ok(hx2, hz + mz, hx2, hz)) { pos.z += mz; moved += Math.abs(mz); } else vel.y *= 0.5;
                 }
-                this.stride = (this.stride || 0) + Math.hypot(vel.x, vel.y) * dt;
+                this.stride = (this.stride || 0) + moved;
                 if (this.stride > (run ? 0.9 : 0.72)) { this.stride = 0; state.onStep && state.onStep(); }
             }
             const gy = w.groundAt(head.x, head.z);
